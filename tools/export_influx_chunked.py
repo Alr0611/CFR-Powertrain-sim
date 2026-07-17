@@ -46,19 +46,40 @@ def montreal():
         return None
 
 
+def _parse_dt(s):
+    """Read a date/time as forgivingly as possible. None if we truly can't."""
+    s = s.strip()
+    # Exact ISO (handles Z / +hh:mm offsets) -- but it demands zero-padding.
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        pass
+    # Forgiving fallbacks: single-digit month/day/hour, space OR T, seconds optional,
+    # slashes OK, date-only OK. Covers how people actually type ("2026-7-11 11:20").
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S",
+                "%Y/%m/%d %H:%M", "%Y/%m/%d %H:%M:%S",
+                "%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
+
+
 def to_utc_z(s):
     """Turn a time string into the UTC Z-format Influx wants.
 
-    Plain time ("2026-06-20 11:30")  -> treated as MONTREAL time and converted.
-    Ends in Z or +hh:mm              -> used as-is.
-    So you type the time off your phone and it just works.
+    Plain time ("2026-06-20 11:30", "2026-7-11 11:20")  -> MONTREAL time, converted.
+    Ends in Z or +hh:mm                                  -> used as-is.
+    Leading zeros optional. So you type the time off your phone and it just works.
     """
-    try:
-        dt = datetime.fromisoformat(s.strip().replace("Z", "+00:00"))
-    except ValueError:
+    dt = _parse_dt(s)
+    if dt is None:
         sys.exit(
             f'\nCould not read the time "{s}".\n'
-            'Use "2026-06-20 11:30" (Montreal time) or 2026-06-20T15:30:00Z (UTC).\n'
+            'Try "2026-07-11 11:20" (Montreal) or 2026-07-11T15:20:00Z (UTC).\n'
+            "Date and time separated by a space, 24-hour clock.\n"
         )
     if dt.tzinfo is None:
         tz = montreal()
