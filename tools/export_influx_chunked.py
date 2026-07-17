@@ -19,14 +19,17 @@ SCRIPT MODE (for power users / automation)
     (Want UTC anyway? Stick a Z on the end: 2026-06-20T15:30:00Z.)
     See all knobs with --help.
 
-EDIT
-    Different channels are picked in easy mode, or with --fields, or by editing
-    KNOWN_CHANNELS below.
+CHANNELS
+    Easy mode groups all ~400 channels into subsystems (battery, motor, cooling,
+    suspension, GPS...) so you just pick the group(s) you want. The full list
+    lives in influx_channels.txt next to this script -- regenerate it from a new
+    influx_fields.csv export if the car gains channels.
 """
 
 import argparse
 import csv
 import os
+import re
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -80,27 +83,74 @@ DEFAULT_FIELDS = [
     "VCFRONT_odometer",
 ]
 
-# Every channel we've actually pulled before, for the easy-mode picker. Not the
-# full Influx universe -- just the known-good ones. Add more here as you use them.
-KNOWN_CHANNELS = [
-    "BMSB_packVoltage",
-    "BMSB_packCurrent",
-    "BMSB_packSOC",
-    "PM100DX_motorSpeed",
-    "PM100DX_torqueFeedback",
-    "PM100DX_torqueCommand",
-    "PM100DX_dcBusCurrent",
-    "VCFRONT_wheelSpeedFL",
-    "VCFRONT_wheelSpeedFR",
-    "VCREAR_wheelSpeedRL",
-    "VCREAR_wheelSpeedRR",
-    "VCFRONT_vehicleSpeed",
-    "VCFRONT_odometer",
-    "VCFRONT_torqueRequest",
-]
-
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOKEN_FILE = os.path.join(HERE, "influx_token.txt")
+CHANNEL_FILE = os.path.join(HERE, "influx_channels.txt")
+
+
+def load_channels():
+    """Every channel from influx_channels.txt (one per line). If that file is
+    missing, fall back to the sim essentials so the tool still runs."""
+    try:
+        with open(CHANNEL_FILE) as f:
+            chans = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+        if chans:
+            return chans
+    except FileNotFoundError:
+        pass
+    return list(DEFAULT_FIELDS)
+
+
+# Sort every channel into a subsystem by what the signal IS, not which ECU it's
+# on (VCFRONT alone carries GPS, brakes, suspension, wheels...). First match wins,
+# so order matters -- specific things (brakes, suspension) before the ECU catch-alls.
+GROUP_ORDER = [
+    "Battery & HV",
+    "Motor & inverter",
+    "Cooling & temps",
+    "Wheels & speed",
+    "Suspension",
+    "Brakes",
+    "Steering",
+    "Driver inputs",
+    "GPS & position",
+    "Config, status & faults",
+    "Other",
+]
+
+
+def classify(f):
+    sig = f.split("_", 1)[1].lower() if "_" in f else f.lower()   # drop the ECU prefix
+    if re.search(r"gps|latitude|longitude", sig) or sig in (
+            "lat", "lon", "alt", "course", "heading", "day", "hour", "minute", "month", "year"):
+        return "GPS & position"
+    if "shockpot" in sig or "damper" in sig or "suspension" in sig:
+        return "Suspension"
+    if "brake" in sig:
+        return "Brakes"
+    if "steer" in sig:
+        return "Steering"
+    if re.search(r"wheelspeed|axlespeed|vehiclespeed|odometer", sig) or sig == "speed":
+        return "Wheels & speed"
+    if re.search(r"apps|accelerator|pedal|torquerequest|launch|bppc", sig) or sig in ("gear", "gearchangerejected"):
+        return "Driver inputs"
+    if re.search(r"coolant|fan|pump|radiator|thermal", sig) or ("temp" in sig and "cell" not in sig):
+        return "Cooling & temps"
+    if f.startswith("PM100DX"):
+        return "Motor & inverter"
+    if f.startswith("BMSB") or f.startswith("VCPDU") or re.search(r"contactor|cell|pack|soc|hvil|imd|isolation|precharge", sig):
+        return "Battery & HV"
+    if re.search(r"fault|status|state|error|crc|nvm|warn|calibrat|mem|reset|count|eeprom|checksum|param", sig):
+        return "Config, status & faults"
+    return "Other"
+
+
+def grouped_channels():
+    """{group name -> [channels]}, in GROUP_ORDER, empty groups dropped."""
+    groups = {name: [] for name in GROUP_ORDER}
+    for ch in load_channels():
+        groups[classify(ch)].append(ch)
+    return {name: groups[name] for name in GROUP_ORDER if groups[name]}
 
 MAX_RETRIES = 4      # per-window retries before giving up on that window
 RETRY_BACKOFF = 3    # seconds, grows each retry
@@ -263,33 +313,69 @@ def ask(prompt, default=None):
     return ans if ans else (default if default is not None else "")
 
 
+def _dedup(seq):
+    """Drop duplicates but keep first-seen order (groups can overlap in theory)."""
+    seen = set()
+    out = []
+    for x in seq:
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+
+def pick_from_group(chans, name):
+    """Drill into one group and pick individual channels."""
+    print(f"\n{name} -- {len(chans)} channels:")
+    for i, c in enumerate(chans, 1):
+        print(f"   {i:2d}) {c}")
+    raw = ask("Pick numbers (Enter = all of them)", "").strip()
+    if not raw:
+        return list(chans)
+    parts = [p for p in raw.replace(",", " ").split() if p]
+    if all(p.isdigit() for p in parts):
+        return [chans[int(p) - 1] for p in parts if 1 <= int(p) <= len(chans)] or list(chans)
+    return parts
+
+
 def pick_channels():
-    """Numbered menu -> list of channel names."""
-    print("\nWhich channels?  (* = in the powertrain preset)")
-    for i, ch in enumerate(KNOWN_CHANNELS, 1):
-        star = "*" if ch in DEFAULT_FIELDS else " "
-        print(f"   {i:2d}) {star} {ch}")
-    print("\n  Enter        -> powertrain preset (the * ones)")
-    print("  1,3,5        -> just those numbers")
-    print("  all          -> everything above")
-    print("  type names   -> your own, comma or space separated")
+    """Group-based menu -> list of channel names."""
+    groups = grouped_channels()
+    names = list(groups)
+    total = sum(len(v) for v in groups.values())
+
+    print("\nPick channels by SUBSYSTEM:")
+    for i, name in enumerate(names, 1):
+        print(f"   {i:2d}) {name:<24} {len(groups[name]):3d}")
+    print()
+    print(f"  Enter    -> just the sim essentials ({len(DEFAULT_FIELDS)} channels)")
+    print("  1,3      -> those groups, combined")
+    print(f"  all      -> everything ({total} channels)")
+    print("  list 2   -> see and pick individual channels inside group 2")
     raw = ask("\nYour pick", "").strip()
 
     if not raw:
         return list(DEFAULT_FIELDS)
-    if raw.lower() == "all":
-        return list(KNOWN_CHANNELS)
+    low = raw.lower()
+    if low == "all":
+        return [c for v in groups.values() for c in v]
+    if low.startswith("list"):
+        rest = raw[4:].strip()
+        if rest.isdigit() and 1 <= int(rest) <= len(names):
+            return pick_from_group(groups[names[int(rest) - 1]], names[int(rest) - 1])
+        print('  (which group? e.g. "list 2")')
+        return pick_channels()
 
     parts = [p for p in raw.replace(",", " ").split() if p]
     if parts and all(p.isdigit() for p in parts):
         chosen = []
         for p in parts:
             idx = int(p)
-            if 1 <= idx <= len(KNOWN_CHANNELS):
-                chosen.append(KNOWN_CHANNELS[idx - 1])
+            if 1 <= idx <= len(names):
+                chosen += groups[names[idx - 1]]
             else:
                 print(f"  (ignoring {p} -- out of range)")
-        return chosen or list(DEFAULT_FIELDS)
+        return _dedup(chosen) or list(DEFAULT_FIELDS)
     return parts   # treated as channel names typed directly
 
 
