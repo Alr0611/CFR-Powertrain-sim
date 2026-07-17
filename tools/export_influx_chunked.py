@@ -1,17 +1,31 @@
 #!/usr/bin/env python3
-"""
+r"""
 Pulls telemetry from Influx into a MATLAB-ready CSV (one column per channel,
 t_s starts at 0). readtable() it and go.
 
-EASY MODE (just double-click / run with no arguments)
+FIRST: open a terminal IN THE SAME FOLDER as this script -- wherever you saved
+it (Downloads, Desktop, doesn't matter). Then "python export_influx_chunked.py"
+just works, and your CSV lands right there next to it.
+    Windows quick way: open that folder in File Explorer, click the address bar,
+    type  cmd , hit Enter -- a terminal opens already in the right place.
+    Or from any terminal:
+        cd "C:\Users\you\Downloads\the-folder-with-this-script"
+        python export_influx_chunked.py
+
+KEEP THESE TWO TOGETHER: this script wants influx_channels.txt sitting beside it
+(that's the ~400-channel list for the picker). Without it the tool still runs,
+you just get the handful of sim essentials instead of the full grouped list.
+
+EASY MODE (just run it with no arguments)
     python export_influx_chunked.py
     It walks you through it: paste your token once, type the time range off
     your phone, pick your channels, done.
 
 SETUP (once)
-    1. pip install influxdb-client tzdata
-    2. Make yourself an API token in the Influx web UI (Load Data > API Tokens).
-       Easy mode will offer to save it so you only paste it once.
+    You need Python installed. That's it -- the first time you run the tool it
+    auto-installs the one package it needs (influxdb-client). You'll also make an
+    API token in the Influx web UI (Load Data > API Tokens); the tool saves it
+    after the first paste, so you only do that once too.
 
 SCRIPT MODE (for power users / automation)
     python export_influx_chunked.py --start "2026-06-20 11:30" --stop "2026-06-20 13:00" --out my_run.csv
@@ -33,6 +47,38 @@ import re
 import sys
 import time
 from datetime import datetime, timedelta, timezone
+
+
+def ensure_deps():
+    """First run installs the one package we need, so nobody has to think about pip.
+    No-op if it's already there."""
+    try:
+        import influxdb_client  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    import subprocess
+    print("One-time setup: installing 'influxdb-client' (the only thing this tool needs)...")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install",
+                               "influxdb-client", "tzdata"])
+    except Exception as e:
+        sys.exit(
+            "\nCouldn't auto-install it (no internet, or pip is locked down?).\n"
+            "Just run this once yourself, then start the tool again:\n"
+            "    pip install influxdb-client tzdata\n"
+            f"  (the error was: {e})\n"
+        )
+    try:
+        import influxdb_client  # noqa: F401
+    except ImportError:
+        sys.exit(
+            "\nInstalled it, but this Python still can't see it. You probably have\n"
+            "more than one Python -- install into this one:\n"
+            f"    {sys.executable} -m pip install influxdb-client tzdata\n"
+        )
+    print("Done. Continuing...\n")
 
 
 def montreal():
@@ -538,6 +584,7 @@ def main():
 
 
 if __name__ == "__main__":
+    ensure_deps()          # install influxdb-client on first run, no-op after
     if len(sys.argv) == 1:
         interactive()      # no arguments -> friendly guided mode
     else:
