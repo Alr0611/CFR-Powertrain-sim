@@ -204,6 +204,30 @@ def time_chunks(start_iso, stop_iso, minutes):
         cur = nxt
 
 
+def _api_hint(e, n_fields):
+    """Turn an Influx ApiException into a message that actually says what's wrong."""
+    status = getattr(e, "status", None)
+    body = (getattr(e, "body", "") or getattr(e, "reason", "") or "")[:400]
+    msg = f"\nInflux rejected the request (HTTP {status}).\n"
+    if status == 401:
+        msg += ("  -> Your API token is wrong or expired.\n"
+                "     Make a fresh one in the Influx web UI (Load Data > API Tokens),\n"
+                "     delete tools/influx_token.txt, and run again to re-enter it.\n")
+    elif status in (403,):
+        msg += "  -> Token is valid but not allowed to read this bucket. Make one with read access.\n"
+    elif status == 404:
+        msg += "  -> Bucket or org not found. Check they match the Influx UI (--bucket / --org).\n"
+    elif status in (400, 422):
+        msg += (f"  -> Influx couldn't run the query. You asked for {n_fields} channels at once;\n"
+                "     that big a filter can trip it up. Try fewer groups, or a channel name\n"
+                "     might be misspelled.\n")
+    elif status and status >= 500:
+        msg += "  -> Influx server error. Might be transient -- try again in a minute.\n"
+    if body:
+        msg += f"  Influx said: {body}\n"
+    return msg
+
+
 def run_export(start_utc, stop_utc, fields, out, token,
                rate="100ms", chunk_minutes=5,
                url="http://192.168.100.115:8086", org="90e50b9a4b0adcd6",
@@ -211,14 +235,18 @@ def run_export(start_utc, stop_utc, fields, out, token,
     """The actual pull. Both easy mode and script mode funnel through here."""
     try:
         from influxdb_client import InfluxDBClient
+        from influxdb_client.rest import ApiException
     except ImportError:
         sys.exit("\ninfluxdb-client isn't installed. Run:  pip install influxdb-client tzdata\n")
 
-    field_filter = " or ".join(f'r._field == "{f}"' for f in fields)
+    # Filter with contains(set: [...]) -- ONE predicate over a list -- instead of
+    # chaining N `or` clauses. With 200+ channels the giant OR filter can blow past
+    # Influx's query-complexity limit and get rejected; a set never does.
+    field_set = "[" + ", ".join(f'"{f}"' for f in fields) + "]"
     flux_template = (
         'from(bucket: "{bucket}")\n'
         "  |> range(start: {start}, stop: {stop})\n"
-        "  |> filter(fn: (r) => {field_filter})\n"
+        "  |> filter(fn: (r) => contains(value: r._field, set: {field_set}))\n"
         "  |> aggregateWindow(every: {agg}, fn: mean, createEmpty: false)\n"
         '  |> keep(columns: ["_time", "_field", "_value", "_measurement"])\n'
     )
@@ -240,7 +268,7 @@ def run_export(start_utc, stop_utc, fields, out, token,
 
     for i, (w_start, w_stop) in enumerate(chunks, 1):
         flux = flux_template.format(bucket=bucket, start=w_start, stop=w_stop,
-                                    field_filter=field_filter, agg=rate)
+                                    field_set=field_set, agg=rate)
         print(f"[{i}/{len(chunks)}] {w_start} -> {w_stop} ...", end=" ", flush=True)
 
         tables = None
@@ -248,13 +276,31 @@ def run_export(start_utc, stop_utc, fields, out, token,
             try:
                 tables = query_api.query(flux, org=org)
                 break
-            except Exception as e:
+            except ApiException as e:
+                # HTTP error from Influx. A 4xx (bad token, bad query) is deterministic --
+                # retrying just wastes 18s per window. Bail immediately with the real reason.
+                status = getattr(e, "status", 0) or 0
+                if 400 <= status < 500:
+                    print("FAILED")
+                    client.close()
+                    sys.exit(_api_hint(e, len(fields)))
                 if attempt == MAX_RETRIES:
-                    print(f"FAILED after {MAX_RETRIES} tries ({type(e).__name__}) -- skipping")
+                    print(f"FAILED (HTTP {status}) -- skipping")
                     failed_windows.append((w_start, w_stop))
                 else:
                     wait = RETRY_BACKOFF * attempt
-                    print(f"\n    retry {attempt}/{MAX_RETRIES - 1} in {wait}s ({type(e).__name__})",
+                    print(f"\n    retry {attempt}/{MAX_RETRIES - 1} in {wait}s (HTTP {status})",
+                          end=" ", flush=True)
+                    time.sleep(wait)
+            except Exception as e:
+                # Network / timeout / anything else -- these CAN be transient, so retry,
+                # but show the actual error instead of just its class name.
+                if attempt == MAX_RETRIES:
+                    print(f"FAILED after {MAX_RETRIES} tries -- {type(e).__name__}: {e}")
+                    failed_windows.append((w_start, w_stop))
+                else:
+                    wait = RETRY_BACKOFF * attempt
+                    print(f"\n    retry {attempt}/{MAX_RETRIES - 1} in {wait}s ({type(e).__name__}: {e})",
                           end=" ", flush=True)
                     time.sleep(wait)
         if tables is None:
@@ -270,11 +316,20 @@ def run_export(start_utc, stop_utc, fields, out, token,
     client.close()
 
     if not data:
+        if failed_windows and len(failed_windows) == len(chunks):
+            # Nothing came back because every query ERRORED, not because the range was empty.
+            sys.exit(
+                "\nEvery window errored -- see the messages above. This is a connection/query\n"
+                "problem, NOT an empty time range. Common causes:\n"
+                "  - the DAQ box isn't reachable from here (are you on the car's network / VPN?)\n"
+                "  - token expired -> delete tools/influx_token.txt and re-run\n"
+                "  - too many channels at once -> try fewer groups\n"
+            )
         sys.exit(
-            "\nNo data came back at all. Usual suspects:\n"
-            "  - wrong time range (check the 'querying UTC' line above looks sane)\n"
-            "  - the car wasn't logging in that window\n"
-            "  - a typo in the channel names\n"
+            "\nNo data in that window (the queries ran fine, they just found nothing):\n"
+            "  - check the 'querying UTC' line above looks like the right time\n"
+            "  - the car may not have been logging then\n"
+            "  - a channel name might be misspelled\n"
         )
 
     # Write wide: t_s + one column per field. Missing samples become empty
