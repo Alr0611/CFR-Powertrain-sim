@@ -306,9 +306,10 @@ def interactive():
         token = ask("Paste your token").strip()
         if not token:
             sys.exit("Need a token to talk to Influx. Grab one and try again.")
-        if ask("Save it so you never paste it again?", "Y").lower().startswith("y"):
-            save_token(token)
-            print(f"Saved -> {TOKEN_FILE}  (gitignored, stays off GitHub)")
+        # Save it automatically so future runs never ask again.
+        save_token(token)
+        print("Saved -- you won't have to type it again. (Stored in influx_token.txt,")
+        print("which is gitignored, so it stays off GitHub.)")
 
     # --- time range ---
     print('\nTime range in MONTREAL time, like "2026-06-20 11:30" (24-hour clock).')
