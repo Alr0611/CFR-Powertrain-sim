@@ -15,3 +15,6 @@ desktop.ini
 # deliverables live in Teams, not here - tools/ rebuilds them
 *.xlsx
 *.docx
+
+# influx credentials stay OFF github
+tools/influx_token.txt

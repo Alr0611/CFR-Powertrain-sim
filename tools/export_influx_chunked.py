@@ -1,46 +1,73 @@
 #!/usr/bin/env python3
 """
-export_influx_chunked.py
+Pulls telemetry from Influx into a MATLAB-ready CSV (one column per channel,
+t_s starts at 0). readtable() it and go.
 
-Pulls a time range from InfluxDB in small windows (avoids the ~100MB
-truncation) and writes a WIDE, MATLAB-ready CSV: one row per 100ms sample,
-a t_s time column (starts at 0), and one column per channel named exactly
-as the field. Read straight into MATLAB with readtable() -- no pivoting.
+SETUP (once)
+    1. pip install influxdb-client tzdata
+    2. Make yourself an API token in the Influx web UI (Load Data > API Tokens)
+       and paste it into a file called influx_token.txt next to this script.
 
-SETUP:
-    pip install influxdb-client --break-system-packages
+RUN
+    python export_influx_chunked.py --start "2026-06-20 11:30" --stop "2026-06-20 13:00" --out my_run.csv
 
-FILL IN BELOW: url, token, org, bucket, field list, time range.
+    Times are MONTREAL time -- type them straight off your phone, no UTC math.
+    (Want UTC anyway? Stick a Z on the end: 2026-06-20T15:30:00Z.)
+    Not sure of your window? Ballpark it wide -- quiet time returns nothing.
+
+EDIT
+    Different channels: edit DEFAULT_FIELDS below, or pass --fields.
+    Everything else: --help
 """
 
-from influxdb_client import InfluxDBClient
+import argparse
 import csv
+import os
+import sys
+import time
+from datetime import datetime, timedelta, timezone
 
-# ---- CONNECTION SETTINGS (fill these in) ----
-INFLUX_URL = "http://192.168.100.115:8086"
-INFLUX_TOKEN = "NkMs9TYxYwMrpiCE6-HrfrBJPys9herBcDxDuVnskVwgOqCojHPu2lrplb3V3D83KXiHpvpidqU69QOcpm1jqQ=="
-INFLUX_ORG = "90e50b9a4b0adcd6"
-BUCKET = "CarTelemetry" 
 
-# ---- QUERY SETTINGS ----
-# COMP endurance re-pull, June 20 2026, ~15:35-16:55 UTC session (found
-# earlier). This time WITH wheel-speed sensors so the gear-ratio efficiency
-# sweep can run on comp (real race pace) instead of the July 11 test day.
-START_TIME = "2026-06-20T15:30:00Z"
-STOP_TIME  = "2026-06-20T17:00:00Z"
-CHUNK_MINUTES = 5
-AGG_WINDOW = "100ms"
+def montreal():
+    """Montreal time (America/Toronto -- same zone), because that's where we live.
+    Falls back to this computer's clock if the tz database is missing, which is
+    the same thing unless your laptop thinks it's somewhere weird."""
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo("America/Toronto")
+    except Exception:
+        return None
 
-# Endurance fields for the gear-ratio EFFICIENCY sweep on comp data:
-# pack V/I, motor rpm/torque, all four wheel-speed sensors (ratio-invariant
-# ground truth), speed + odometer. (SOC stays on July 11 -- comp DNF'd.)
-FIELDS = [
+
+def to_utc_z(s):
+    """Turn a time string into the UTC Z-format Influx wants.
+
+    Plain time ("2026-06-20 11:30")  -> treated as MONTREAL time and converted.
+    Ends in Z or +hh:mm              -> used as-is.
+    So you type the time off your phone and it just works.
+    """
+    try:
+        dt = datetime.fromisoformat(s.strip().replace("Z", "+00:00"))
+    except ValueError:
+        sys.exit(
+            f'\nCould not read the time "{s}".\n'
+            'Use "2026-06-20 11:30" (Montreal time) or 2026-06-20T15:30:00Z (UTC).\n'
+        )
+    if dt.tzinfo is None:
+        tz = montreal()
+        dt = dt.replace(tzinfo=tz) if tz else dt.astimezone()
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+# The default channel set: everything the gear-ratio / efficiency work needs.
+# Pack V/I + SOC, motor speed/torque, all four wheel speeds (ratio-invariant
+# ground truth), vehicle speed, odometer. Override with --fields.
+DEFAULT_FIELDS = [
     "BMSB_packVoltage",
     "BMSB_packCurrent",
     "BMSB_packSOC",
     "PM100DX_motorSpeed",
     "PM100DX_torqueFeedback",
-    "VCFRONT_wheelSpeedFL",     # 4 wheel-speed sensors = wheel_rpm ground truth
+    "VCFRONT_wheelSpeedFL",
     "VCFRONT_wheelSpeedFR",
     "VCREAR_wheelSpeedRL",
     "VCREAR_wheelSpeedRR",
@@ -48,101 +75,165 @@ FIELDS = [
     "VCFRONT_odometer",
 ]
 
-OUTPUT_CSV = "comp_june20_data.csv"
+HERE = os.path.dirname(os.path.abspath(__file__))
+TOKEN_FILE = os.path.join(HERE, "influx_token.txt")
 
-# ---- BUILD FIELD FILTER ----
-field_filter = " or ".join(f'r._field == "{f}"' for f in FIELDS)
+MAX_RETRIES = 4      # per-window retries before giving up on that window
+RETRY_BACKOFF = 3    # seconds, grows each retry
 
-FLUX_TEMPLATE = '''
-from(bucket: "{bucket}")
-  |> range(start: {start}, stop: {stop})
-  |> filter(fn: (r) => {field_filter})
-  |> aggregateWindow(every: {agg}, fn: mean, createEmpty: false)
-  |> keep(columns: ["_time", "_field", "_value", "_measurement"])
-'''
+
+def get_token(cli_token):
+    """Token, in order of preference: --token, INFLUX_TOKEN env var, token file."""
+    if cli_token:
+        return cli_token
+    if os.environ.get("INFLUX_TOKEN"):
+        return os.environ["INFLUX_TOKEN"]
+    if os.path.exists(TOKEN_FILE):
+        with open(TOKEN_FILE) as f:
+            tok = f.read().strip()
+        if tok:
+            return tok
+    sys.exit(
+        "\nNo Influx token found. Make yourself one in the Influx web UI\n"
+        "(Load Data > API Tokens), then either:\n"
+        "  1. Save it as one line in:  " + TOKEN_FILE + "\n"
+        "  2. Set the INFLUX_TOKEN environment variable\n"
+        "  3. Pass --token <token>\n"
+    )
+
 
 def time_chunks(start_iso, stop_iso, minutes):
-    from datetime import datetime, timedelta, timezone
     start = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
     stop = datetime.fromisoformat(stop_iso.replace("Z", "+00:00"))
+    if stop <= start:
+        sys.exit("--stop must be after --start (both like 2026-06-20T15:30:00Z)")
     step = timedelta(minutes=minutes)
     cur = start
     while cur < stop:
         nxt = min(cur + step, stop)
-        yield cur.isoformat().replace("+00:00", "Z"), nxt.isoformat().replace("+00:00", "Z")
+        yield (cur.isoformat().replace("+00:00", "Z"),
+               nxt.isoformat().replace("+00:00", "Z"))
         cur = nxt
 
-MAX_RETRIES = 4          # per-chunk retries on timeout before giving up on that chunk
-RETRY_BACKOFF = 3        # seconds, grows each retry
 
 def main():
-    import time as _time
-    # Longer client timeout so a normal (data-heavy) chunk doesn't get cut off.
-    client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG, timeout=180_000)
+    ap = argparse.ArgumentParser(
+        description="Export car telemetry from InfluxDB to a wide MATLAB-ready CSV.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    ap.add_argument("--start", required=True,
+                    help='range start, Montreal time, e.g. "2026-06-20 11:30" (add Z for UTC)')
+    ap.add_argument("--stop", required=True,
+                    help='range stop, same deal, e.g. "2026-06-20 13:00"')
+    ap.add_argument("--out", default="telemetry_export.csv", help="output CSV filename")
+    ap.add_argument("--fields", nargs="+", default=DEFAULT_FIELDS,
+                    help="channel names to pull (space separated)")
+    ap.add_argument("--rate", default="100ms", help="aggregation window (mean)")
+    ap.add_argument("--chunk-minutes", type=int, default=5,
+                    help="query window size; smaller = slower but safer")
+    ap.add_argument("--url", default="http://192.168.100.115:8086",
+                    help="InfluxDB URL (the car's DAQ box)")
+    ap.add_argument("--org", default="90e50b9a4b0adcd6", help="InfluxDB org id")
+    ap.add_argument("--bucket", default="CarTelemetry", help="InfluxDB bucket")
+    ap.add_argument("--token", default=None, help="InfluxDB token (or use influx_token.txt)")
+    args = ap.parse_args()
+
+    # Check the cheap stuff (times) before demanding a token or a library.
+    start_utc = to_utc_z(args.start)
+    stop_utc = to_utc_z(args.stop)
+
+    try:
+        from influxdb_client import InfluxDBClient
+    except ImportError:
+        sys.exit("\ninfluxdb-client isn't installed. Run:  pip install influxdb-client tzdata\n")
+
+    token = get_token(args.token)
+
+    field_filter = " or ".join(f'r._field == "{f}"' for f in args.fields)
+    flux_template = (
+        'from(bucket: "{bucket}")\n'
+        "  |> range(start: {start}, stop: {stop})\n"
+        "  |> filter(fn: (r) => {field_filter})\n"
+        "  |> aggregateWindow(every: {agg}, fn: mean, createEmpty: false)\n"
+        '  |> keep(columns: ["_time", "_field", "_value", "_measurement"])\n'
+    )
+
+    # Long client timeout so a data-heavy (but healthy) window doesn't get cut off.
+    client = InfluxDBClient(url=args.url, token=token, org=args.org, timeout=180_000)
     query_api = client.query_api()
 
-    # Accumulate WIDE: {timestamp -> {field: value}}, so the output is one row
-    # per 100ms with a column per channel -- a drop-in for the MATLAB scripts,
-    # no pivoting needed. A ~90-min window fits comfortably in RAM.
+    chunks = list(time_chunks(start_utc, stop_utc, args.chunk_minutes))
+    print(f"\nPulling {len(args.fields)} channels")
+    print(f"  you asked for:  {args.start} -> {args.stop}  (Montreal time unless you wrote Z)")
+    print(f"  querying UTC:   {start_utc} -> {stop_utc}")
+    print(f"  ({len(chunks)} windows of {args.chunk_minutes} min at {args.rate} sampling)\n")
+
+    # Accumulate wide: {timestamp -> {field: value}}. A 90-min session fits in RAM fine.
     data = {}
-    n_points = 0
     failed_windows = []
 
-    for chunk_start, chunk_stop in time_chunks(START_TIME, STOP_TIME, CHUNK_MINUTES):
-        flux = FLUX_TEMPLATE.format(
-            bucket=BUCKET, start=chunk_start, stop=chunk_stop,
-            field_filter=field_filter, agg=AGG_WINDOW,
-        )
-        print(f"Querying {chunk_start} -> {chunk_stop} ...")
+    for i, (w_start, w_stop) in enumerate(chunks, 1):
+        flux = flux_template.format(bucket=args.bucket, start=w_start, stop=w_stop,
+                                    field_filter=field_filter, agg=args.rate)
+        print(f"[{i}/{len(chunks)}] {w_start} -> {w_stop} ...", end=" ", flush=True)
 
         tables = None
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                tables = query_api.query(flux, org=INFLUX_ORG)
+                tables = query_api.query(flux, org=args.org)
                 break
             except Exception as e:
                 if attempt == MAX_RETRIES:
-                    print(f"  !! FAILED after {MAX_RETRIES} tries ({type(e).__name__}); skipping this window")
-                    failed_windows.append((chunk_start, chunk_stop))
+                    print(f"FAILED after {MAX_RETRIES} tries ({type(e).__name__}) -- skipping")
+                    failed_windows.append((w_start, w_stop))
                 else:
                     wait = RETRY_BACKOFF * attempt
-                    print(f"  .. timeout/err ({type(e).__name__}), retry {attempt}/{MAX_RETRIES-1} in {wait}s")
-                    _time.sleep(wait)
+                    print(f"\n    retry {attempt}/{MAX_RETRIES - 1} in {wait}s ({type(e).__name__})",
+                          end=" ", flush=True)
+                    time.sleep(wait)
         if tables is None:
             continue
 
-        rows_this_chunk = 0
+        n = 0
         for table in tables:
             for record in table.records:
                 data.setdefault(record.get_time(), {})[record.get_field()] = record.get_value()
-                rows_this_chunk += 1
-        n_points += rows_this_chunk
-        print(f"  -> {rows_this_chunk} points ({len(data)} unique timestamps so far)")
+                n += 1
+        print(f"{n} points")
 
     client.close()
 
-    # ---- write WIDE, MATLAB-ready: t_s + one column per field ----
     if not data:
-        print("\nNo data in this window. Check the time range / that the car was logging.")
-        return
+        sys.exit(
+            "\nNo data came back at all. Usual suspects:\n"
+            "  - wrong time range (check the 'querying UTC' line above looks sane)\n"
+            "  - the car wasn't logging in that window\n"
+            "  - wrong bucket / channel names (typo in --fields?)\n"
+        )
+
+    # Write wide: t_s + one column per field. Missing samples become empty
+    # cells, which MATLAB's readtable turns into NaN -- exactly what we want.
     times = sorted(data.keys())
     t0 = times[0]
-    with open(OUTPUT_CSV, "w", newline="") as f:
+    with open(args.out, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["t_s"] + FIELDS)              # header = MATLAB variable names
+        writer.writerow(["t_s"] + args.fields)
         for dt in times:
             row = [f"{(dt - t0).total_seconds():.3f}"]
-            for field in FIELDS:
-                row.append(data[dt].get(field, ""))    # missing -> empty -> NaN in MATLAB
+            row += [data[dt].get(field, "") for field in args.fields]
             writer.writerow(row)
-    print(f"\nDone. {len(times)} rows x {len(FIELDS)} fields (wide, MATLAB-ready) -> {OUTPUT_CSV}")
-    print(f"In MATLAB:  W = readtable('{OUTPUT_CSV}');  % t_s starts at 0")
+
+    dur = (times[-1] - t0).total_seconds()
+    print(f"\nDone. {len(times)} rows x {len(args.fields)} channels "
+          f"({dur / 60:.1f} min of data) -> {args.out}")
+    print(f"In MATLAB:  W = readtable('{args.out}');   % t_s starts at 0")
 
     if failed_windows:
-        print(f"\n{len(failed_windows)} window(s) failed after retries (usually transient network):")
+        print(f"\nHEADS UP: {len(failed_windows)} window(s) failed even after retries:")
         for a, b in failed_windows:
-            print(f"   {a} -> {b}")
-        print("Re-run the script -- a fresh pass usually clears transient timeouts.")
+            print(f"    {a} -> {b}")
+        print("That data is MISSING from the CSV. Re-run -- it's usually just network flake.")
+
 
 if __name__ == "__main__":
     main()
