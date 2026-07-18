@@ -77,6 +77,17 @@ p.core_loss_b = 2.7778e-5;  % no load (magnets dragging through iron). ~575 W at
 p.Prpm        = [0 1000 2000 3000 4000 5000 6000];   % peak power curve: rpm...
 p.Pkw         = [0   24   40   50   56   62   68];   % ...and the kW at each
 p.T_flat_cap  = 140;        % Nm. Max twist, low speed. (Spec says 150 peak.)
+p.eta_inverter = 0.95;      % REAL-WORLD haircut. The datasheet 96% is the motor
+                            % ALONE at its best point, on a bench. The real car
+                            % also runs power through the INVERTER (a whole second
+                            % box the spec ignores), plus loses a bit more to
+                            % switching harmonics, windage and heat that the clean
+                            % physics skips. Measured from the car (freeman803's
+                            % telemetry): real motor+inverter eff was ~0.86 vs our
+                            % idealized ~0.91 -> everything we miss is ~5%. So this
+                            % turns "motor spec efficiency" into "what actually
+                            % reaches the shaft." PROVISIONAL: one run, ~175 steady
+                            % points; a steady-state test would tighten it.
 
 %% ---- SPINNING BITS (only matters for accel model) ----
 %  Accelerating isn't just car vroom vroom (eeee for electric ig) moving forward -- you also have to spin up
@@ -93,9 +104,13 @@ p.n_wheels    = 4;          % all four spin, even the lazy front ones
 p.T_F         = 1.5;        % Nm of driveline friction. (GUESS, and a small one.)
 
 %% ---- WHAT COUNTS AS "GOOD" ----
-p.eff_sweet = 0.95;         % We call >=95% motor efficiency the "sweet spot".
-                            % The headline metric is: how much of our driving
-                            % energy gets delivered while we're in it?
+p.eff_sweet = 0.90;         % We call >=90% REAL (motor+inverter) efficiency the
+                            % "sweet spot". Was 0.95 back when we quoted motor-only
+                            % efficiency; since the number now includes the inverter
+                            % (see p.eta_inverter), the same good operating region
+                            % sits at ~90%. The headline metric is unchanged: how
+                            % much of our driving energy gets delivered while we're
+                            % in it? (0.95 motor x 0.95 inverter ~ 0.90 real.)
 
 %% ---- BATTERY (from our own HPPC cell test) ----
 %  This is the cell's electrical personality: how its voltage sags under load

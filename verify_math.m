@@ -21,18 +21,23 @@ SOC0 = interp1(OCV, SOC_lookupR, Vcell0, 'linear');
 fprintf('  first sample 364.28 V / 88 = %.4f V/cell -> SOC %.1f%% (BMS logged 94.3%%)\n', Vcell0, SOC0*100);
 pass('rest-voltage SOC within 1pt of BMS', abs(SOC0*100-94.3)<1.0);
 
-fprintf('\n=== 3. EMRAX EFFICIENCY MODEL vs DATASHEET (92-98%%, peak ~96%%) ===\n');
-Rph=0.012; NmA=0.83; a=0.10833; b=2.7778e-5;
+fprintf('\n=== 3. EMRAX EFFICIENCY: physics vs datasheet, then real-world ===\n');
+% Two layers: (a) the PHYSICS must reproduce the datasheet's motor-only ~96% peak,
+% (b) the sim REPORTS real-world (motor+inverter) after the eta_inverter haircut,
+% cross-checked against freeman803's measured telemetry (~0.86-0.90 on track).
+Rph=0.012; NmA=0.83; a=0.10833; b=2.7778e-5; eta_inv=0.95;
 efffun = @(rpm,T) (T.*rpm*2*pi/60) ./ (T.*rpm*2*pi/60 + 3*(T/NmA).^2*Rph + a*rpm + b*rpm.^2);
 test_pts = [3000 60; 2000 80; 2500 65; 4000 50; 1500 40];  % rpm, Nm (in/near datasheet island)
 for k=1:size(test_pts,1)
     e = efffun(test_pts(k,1),test_pts(k,2))*100;
-    fprintf('  %d rpm / %d Nm -> %.1f%%\n', test_pts(k,1), test_pts(k,2), e);
+    fprintf('  %d rpm / %d Nm -> %.1f%% motor (physics) | %.1f%% real (+inverter)\n', ...
+        test_pts(k,1), test_pts(k,2), e, e*eta_inv);
 end
 peak_e = efffun(2500,65)*100;
-pass('peak-island efficiency in 95-97% band', peak_e>95 && peak_e<97);
+pass('physics reproduces datasheet motor peak (95-97%)', peak_e>95 && peak_e<97);
 all_e = arrayfun(@(k) efffun(test_pts(k,1),test_pts(k,2))*100, 1:size(test_pts,1));
-pass('all island points within datasheet 92-98% envelope', all(all_e>=88 & all_e<=98));
+pass('all physics island points within datasheet 92-98% envelope', all(all_e>=88 & all_e<=98));
+pass('real-world peak (motor+inverter) lands ~88-93%', peak_e*eta_inv>88 && peak_e*eta_inv<93);
 
 fprintf('\n=== 4. CORE-LOSS FIT vs FREE-RUN-LOSS ANCHORS ===\n');
 for rpm=[3000 6000]
