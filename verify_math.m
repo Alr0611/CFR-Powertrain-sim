@@ -139,5 +139,46 @@ Fdown=0.5*1.225*ClA*v^2; Fres=0.5*1.225*CdA*v^2+0.015*(294*9.81+Fdown);
 fprintf('  resistance at 112 kph = %.0f N (drag+roll+downforce-roll)\n', Fres);
 pass('resistance force positive and plausible (<1500 N)', Fres>0 && Fres<1500);
 
+fprintf('\n=== 15. REAL-WORLD EFFICIENCY vs RAW TELEMETRY (af/dteff cross-check) ===\n');
+% The eta_inverter = 0.95 haircut was calibrated against measured telemetry
+% (freeman803's af/dteff method: shaft power / pack power). This check re-derives
+% the measured number from the RAW June 20 CSV every run, so if anyone touches
+% the physics constants or the haircut, the sim can no longer silently drift
+% away from what the car actually measured. (Honesty note: this closes the
+% calibration loop against the same session it was calibrated on -- it is a
+% consistency check. Independent validation = a deliberate steady-state run.)
+csvfile = fullfile(fileparts(mfilename('fullpath')), 'data', 'comp_june20_data.csv');
+if exist(csvfile, 'file')
+    D    = readtable(csvfile);
+    rpmT = abs(D.PM100DX_motorSpeed);  tqT = abs(D.PM100DX_torqueFeedback);
+    elec = abs(D.BMSB_packVoltage .* D.BMSB_packCurrent);
+    mech = tqT .* rpmT * 2*pi/60;
+    % (a) rigid driveline: motor:axle speed ratio must equal the gear ratio.
+    %     This is WHY the af/dteff map's hardcoded 4.6 cancels, making their
+    %     map motor+inverter (pack->shaft), directly comparable to ours.
+    axle = abs(D.VCREAR_wheelSpeedRL);
+    gd   = rpmT>500 & axle>20;
+    ratio_meas = median(rpmT(gd)./axle(gd));
+    fprintf('  motor:axle speed ratio from data = %.3f (gear ratio 4.61)\n', ratio_meas);
+    pass('measured speed ratio = gear ratio (their 4.6 cancels)', abs(ratio_meas-4.61)<0.15);
+    % (b) steady-state points only -- transients book inertia power as "loss"
+    motorm = rpmT>500 & tqT>5 & elec>500 & mech./elec>0.3 & mech./elec<1.0;
+    steady = motorm & movstd(rpmT,11)<40 & movstd(tqT,11)<3;
+    % fit packElec = mech/eta + P0: slope -> motor+inverter eff, intercept ->
+    % accessory draw (pumps/LV) that isn't the motor's fault
+    A = [mech(steady) ones(nnz(steady),1)];  x = A\elec(steady);
+    eta_meas = 1/x(1);  P0 = x(2);
+    fprintf('  %d steady pts | measured motor+inverter eff %.3f | accessory %.0f W\n', ...
+        nnz(steady), eta_meas, P0);
+    pass('measured motor+inverter eff in 0.83-0.91 band', eta_meas>0.83 && eta_meas<0.91);
+    % (c) the sim's real-world model on the SAME points must match the measurement
+    eta_model = mean(efffun(rpmT(steady), tqT(steady))) * eta_inv;
+    fprintf('  sim real-world model on same points: %.3f (measured %.3f, gap %+.4f)\n', ...
+        eta_model, eta_meas, eta_model-eta_meas);
+    pass('sim real-world eff within 0.02 of measured', abs(eta_model-eta_meas)<0.02);
+else
+    fprintf('  [data/comp_june20_data.csv not found -- check skipped]\n');
+end
+
 fprintf('\n=== SUMMARY ===\n');
 fprintf('If any line above reads **FAIL**, that specific number needs a second look.\n');

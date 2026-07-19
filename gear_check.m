@@ -10,13 +10,17 @@
 %      (should spit out ~354 MPa bending / ~1610 MPa contact -- the same
 %       numbers as the CFR24 Driveline Tool. If it doesn't, something broke.)
 %   2. Sweeps every sensible pinion/gear combo, keeps the ones that land on
-%      your target ratio, and reports whether each one passes.
+%      your target ratio, and reports whether each one passes -- including
+%      what each one does to CHAIN TENSION (the chain stage doesn't change,
+%      but the torque we feed it does).
 %
 % OUR DRIVELINE (unchanged for CFR27, just straight halfshafts)
 %   motor -> 2:1 spur gearbox (15T/30T, module 2.5, 25 mm face) -> chain
-%   ~2.3:1 -> diff. 2 x 2.3 = 4.61 total. Change the total ratio by changing
-%   EITHER the gearbox teeth (checked here) OR the sprockets (chain, not a
-%   gear -- different check, not this file).
+%   13T:30T (= 2.3077:1, per "Sprocket Gearing and Forces.xlsx") -> diff.
+%   2 x 2.3077 = 4.615 total ("4.61" around the shop is this, rounded).
+%   Change the total ratio by changing EITHER the gearbox teeth (checked
+%   here) OR the sprockets (chain -- tension reported here, wear/strength of
+%   the chain itself is a different check, not this file).
 %
 % THE ONE THING TO KNOW ABOUT THE TORQUE
 %   Gears are sized on the torque they see ALL DAY (continuous ~80 Nm), not
@@ -28,10 +32,33 @@ clear; clc;
 addpath(fullfile(fileparts(mfilename('fullpath')), 'lib'));  % works wherever MATLAB is pointed
 p = params_cfr26();
 
+%% ============== INPUTS FROM THE GEAR DRAWING (fill these in!) ==============
+% Two numbers off the drawing end the J-factor argument documented below, and
+% one answer from whoever ordered the gears ends the allowables argument.
+% They live HERE, at the top, so the day you get them this is the only place
+% you touch. NaN / 'baja-legacy' = "don't know yet" -> the script runs in
+% BRACKETED mode and refuses to pretend it knows an absolute FOS.
+drawing.PA       = NaN;   % pressure angle, deg (20 or 25) -- drawing title block
+drawing.x_pinion = NaN;   % profile-shift coefficient of the 15T pinion
+drawing.x_gear   = NaN;   % profile-shift coefficient of the 30T gear
+% Material + heat treat. One of:
+%   'baja-legacy'  SCM415 numbers inherited from Baja's sheet (PLACEHOLDER --
+%                  not our steel; FOS printed with it is indicative only)
+%   'grade1' | 'grade2' | 'grade3'  Shigley Tbl 14-3/14-6, carburized+hardened
+material = 'baja-legacy';
+
+mats.baja_legacy = struct('St',461,  'Sc',1627.9,'note','Baja SCM415 sheet (placeholder, not our steel)');
+mats.grade1      = struct('St',379,  'Sc',1241,  'note','Shigley Grade 1 carburized');
+mats.grade2      = struct('St',448,  'Sc',1551,  'note','Shigley Grade 2 carburized');
+mats.grade3      = struct('St',517,  'Sc',1896,  'note','Shigley Grade 3 carburized');
+mat         = mats.(strrep(material,'-','_'));
+mat_is_real = ~strcmpi(material,'baja-legacy');
+
 %% ---- design point + AGMA factors (matching the CFR24 Driveline Tool) ----
 g.module   = 2.5;      % mm
 g.face     = 25;       % mm face width
-g.PA       = 20;       % deg pressure angle
+g.PA       = 20;       % deg -- used for the CONTACT factor I and the sweep;
+if ~isnan(drawing.PA), g.PA = drawing.PA; end   % drawing wins once it's read
 g.Ko       = 1.25;     % overload
 g.Kv       = 1.2;      % dynamic
 g.Ks       = 1.0;      % size
@@ -40,70 +67,90 @@ g.Kb       = 1.0;      % rim thickness
 g.Cp       = 191;      % MPa, elastic coefficient (steel/steel)
 g.T_cont   = 79.6;     % Nm  continuous motor torque (what gears live on)
 g.T_peak   = p.T_flat_cap;   % Nm  peak (140)
-% Allowables (SCM415 case-hardened, from the Baja Shigley sheet -- swap for
-% whatever steel we actually buy). HEADS UP: these are BAJA'S numbers, not ours --
-% the CFR24 Driveline Tool has no allowables at all, it computes stresses and stops.
-% So absolute FOS here is Baja-flavoured. Comparisons between gearsets are fine
-% (the allowable cancels). Shigley Table 14-3/14-6, carburized & hardened, for when
-% someone finally tells us what our gears are made of:
-%   Grade 1: St 379 MPa, Sc 1241 | Grade 2: St 448, Sc 1551 | Grade 3: St 517, Sc 1896
-g.St_allow = 461;      % MPa bending  (Baja's -- roughly Grade 2 carburized)
-g.Sc_allow = 1627.9;   % MPa contact  (Baja's)
+g.St_allow = mat.St;   % MPa bending allowable  (see material block above)
+g.Sc_allow = mat.Sc;   % MPa contact allowable
+
+%% ---- chain stage (from "Sprocket Gearing and Forces.xlsx", CFR24 driveline) ----
+% 13T motor sprocket -> 30T diff sprocket, 5/8" (15.875 mm) pitch.
+% Chain tension = gearbox OUTPUT torque / motor-sprocket pitch radius. A lower
+% gearbox ratio feeds the chain LESS torque -> gearing down helps the chain.
+chain.Np      = 13;  chain.Ng = 30;
+chain.pitch   = 15.875;                            % mm
+chain.ratio   = chain.Ng/chain.Np;                 % 2.3077
+chain.d_motor = chain.pitch/sin(pi/chain.Np);      % 66.33 mm pitch dia (sheet's VLOOKUP)
+chainT = @(T_box_out) T_box_out/(chain.d_motor/2); % Nm/mm = kN, same formula as the sheet
+
+%% ---- the three candidate J values for our 15T pinion, with provenance ----
+J_20std = 0.245;    % Shigley Fig 14-6 = Mott Fig 9-10a: 20 deg, UNSHIFTED, 15T
+J_cfr24 = 0.325;    % what the CFR24 Driveline Tool used (= a 25 deg panel read)
+J_25std = 0.345;    % Mott Fig 9-10b: 25 deg panel at 15T
+% The saga, so nobody re-treads it:
+%   - CFR24 DECLARES 20 deg ('1.1 v & Wt'!A1) and its I = 0.108 agrees.
+%   - But its J = 0.325 is NOT the 20 deg value (that's ~0.245); 0.325 is a
+%     read of Mott's 25 deg panel.
+%   - Centre distance 56.25 mm is exactly standard -> net shift is zero, but
+%     a 15T pinion at 20 deg UNSHIFTED would be undercut (limit 17.1 teeth),
+%     so pinion +x / gear -x is the likely reality: it keeps centre distance
+%     standard AND adds root material, pushing J from 0.245 toward ~0.325.
+%   - So CFR24's number may be right for a reason nobody wrote down. Or it's
+%     a chart misread. Both stories predict the same number.
+% The drawing block above settles it. Until then: bracket, don't assert.
 
 %% ---- 1. sanity check: reproduce our current 15/30 gearbox ----
-% This proves our STRESS MATH matches CFR24. Feed it CFR24's own J and we should
-% land on their numbers. We do. That part is settled.
-%
-% What is NOT settled is the J itself, and we can't settle it from the spreadsheet:
-%   - CFR24 DECLARES 20 deg pressure angle ('1.1 v & Wt'!A1)
-%   - its I = 0.108 agrees -- that IS the 20 deg value
-%   - but its J = 0.325 does NOT: the 20 deg chart reads ~0.245 at 15 teeth.
-%     0.325 is roughly the 25 deg value (Mott Fig 9-10 has a separate 25 deg panel).
-%   - its centre distance 56.25 mm is exactly standard, so net profile shift is zero
-%
-% Best guess: the gears ARE 20 deg but PROFILE SHIFTED (pinion +, gear -, which keeps
-% centre distance standard). A 15T pinion at 20 deg would otherwise be undercut --
-% the limit is 2/sin^2(20) = 17.1 teeth -- and shifting adds root material, pushing J
-% up from 0.245 toward about the 0.325 CFR24 used. So 0.325 may be right for a reason
-% nobody wrote down. Or it's a chart misread. Both stories predict the same number.
-%
-% TWO NUMBERS OFF THE GEAR DRAWING SETTLE IT: pressure angle, and profile shift x.
-% Until then, don't quote an absolute FOS off this file.
-J_cfr24 = 0.325;    % what the Driveline Tool used -- provenance unresolved, see above
-
 fprintf('=== SANITY CHECK: our current gearbox (15T/30T, m2.5, 25mm face) ===\n');
 r = check_pair(15, 30, g, g.T_cont, J_cfr24);
 fprintf(' Using CFR24 J=%.3f -> bending %3.0f MPa | contact %.0f MPa\n', J_cfr24, r.st, r.sc);
-fprintf(' CFR24 Driveline Tool says 354 / 1610 MPa. Stress math match? %s\n', ...
+fprintf(' CFR24 Driveline Tool says 354 / 1610 MPa. Stress math match? %s\n\n', ...
     ternary(abs(r.st-354)<25 && abs(r.sc-1610)<60, 'YES', 'NO - something is off'));
 
-% How much the unresolved J is worth, so nobody mistakes this for precision:
-J_20deg = 0.245;    % 20 deg standard chart at 15T (Shigley Fig 14-6 = Mott Fig 9-10a)
-r2 = check_pair(15, 30, g, g.T_cont, J_20deg);
-fprintf('\n --- how much the open J question is worth ---\n');
-fprintf(' If the gears are 20 deg STANDARD (J=%.3f): bending %3.0f MPa, FOS %.2f\n', ...
-    J_20deg, r2.st, g.St_allow/r2.st);
-fprintf(' If CFR24''s J=%.3f is right:              bending %3.0f MPa, FOS %.2f\n', ...
-    J_cfr24, r.st, g.St_allow/r.st);
-fprintf(' That is a %.0f%% swing. A 15T pinion at 20 deg is below the undercut limit\n', ...
-    100*(r2.st/r.st - 1));
-fprintf(' (%.1f teeth), so it is almost certainly profile shifted -- which this file\n', ...
-    2/sin(deg2rad(20))^2);
-fprintf(' does NOT model. Get the pressure angle + shift off the drawing.\n');
-fprintf(' Also: allowables below are BAJA''S steel, not ours. FOS is indicative only.\n');
+% What we report for the CURRENT gears depends on how much of the drawing we have:
+know_PA = ~isnan(drawing.PA);  know_x = ~isnan(drawing.x_pinion);
+if ~know_PA
+    mode = 'BRACKETED (drawing not read yet)';
+    J_lo = J_20std;  J_hi = J_cfr24;
+elseif drawing.PA==20 && know_x && drawing.x_pinion==0
+    mode = '20 deg UNSHIFTED per drawing -- but that geometry is UNDERCUT at 15T, re-read the drawing!';
+    J_lo = J_20std;  J_hi = J_20std;
+elseif drawing.PA==20 && know_x && drawing.x_pinion>0
+    % Shift confirmed. Exact J for shifted teeth needs AGMA 908-B89 (or the
+    % gear vendor's number). Until someone does that math, the honest window
+    % is [unshifted chart .. CFR24's value]; shifted reality sits high in it.
+    mode = sprintf('20 deg, x=+%.2f per drawing -- shifted, J near the top of the bracket', drawing.x_pinion);
+    J_lo = J_20std;  J_hi = J_cfr24;
+elseif drawing.PA==25
+    mode = '25 deg per drawing -- CFR24''s 0.325 was nearly right, chart value 0.345';
+    J_lo = J_cfr24;  J_hi = J_25std;
+else
+    mode = '20 deg, shift unknown -- bracketed';
+    J_lo = J_20std;  J_hi = J_cfr24;
+end
+r_lo = check_pair(15, 30, g, g.T_cont, J_lo);
+r_hi = check_pair(15, 30, g, g.T_cont, J_hi);
+fprintf(' --- current gears, honest window [%s] ---\n', mode);
+fprintf('   J=%.3f -> bending %3.0f MPa, FOS %.2f   (conservative end)\n', J_lo, r_lo.st, g.St_allow/r_lo.st);
+if J_hi > J_lo
+fprintf('   J=%.3f -> bending %3.0f MPa, FOS %.2f   (optimistic end)\n',   J_hi, r_hi.st, g.St_allow/r_hi.st);
+fprintf('   that window is a %.0f%% swing -- the drawing shrinks it to a point.\n', 100*(r_lo.st/r_hi.st - 1));
+end
+if ~mat_is_real
+fprintf('   allowables = %s -> FOS is INDICATIVE ONLY until material is known.\n', mat.note);
+else
+fprintf('   allowables = %s.\n', mat.note);
+end
 
-rp = check_pair(15, 30, g, g.T_peak, J_cfr24);
-fprintf('\n At PEAK %.0f Nm -> bending %.0f MPa | contact %.0f MPa\n', ...
+rp = check_pair(15, 30, g, g.T_peak, J_lo);
+fprintf('\n At PEAK %.0f Nm (conservative J) -> bending %.0f MPa | contact %.0f MPa\n', ...
     g.T_peak, rp.st, rp.sc);
-fprintf(' Allowable (Baja''s): bending %.0f | contact %.0f MPa\n\n', g.St_allow, g.Sc_allow);
+fprintf(' Allowable (%s): bending %.0f | contact %.0f MPa\n', material, g.St_allow, g.Sc_allow);
+fprintf(' Chain tension today at peak: %.1f kN (sheet quotes 9.0 kN at 150 Nm motor)\n\n', ...
+    chainT(g.T_peak*2));
 
 %% ---- 2. which gearsets hit a target ratio, and do they pass? ----
 target_total = 4.20;                 % <-- what the sim recommends
-chain = 2.305;                       % our chain/sprocket stage (unchanged)
-target_box = target_total / chain;   % what the GEARBOX must do
-fprintf('=== GEARSETS FOR %.2f:1 TOTAL (chain stays %.3f -> gearbox needs %.3f) ===\n', ...
-    target_total, chain, target_box);
-fprintf(' Np  Ng   box    total | bend@cont  cont-FOS | bend@peak  contact@peak | verdict\n');
+target_box = target_total / chain.ratio;   % what the GEARBOX must do
+fprintf('=== GEARSETS FOR %.2f:1 TOTAL (chain stays %d:%d = %.4f -> gearbox needs %.3f) ===\n', ...
+    target_total, chain.Np, chain.Ng, chain.ratio, target_box);
+fprintf(' Np  Ng   box    total | bend@cont  FOS  | bend@peak  contact@peak | chain@peak | verdict\n');
 % Np starts at 18: that's the undercut limit at 20 deg (17.1 teeth), so at 18+ the
 % chart is real, unshifted, fanned data and there's no argument to have. Below that
 % you need profile shift and this file doesn't model it.
@@ -116,14 +163,21 @@ for Np = 18:24
         rc = check_pair(Np, Ng, g, g.T_cont);
         rk = check_pair(Np, Ng, g, g.T_peak);
         FOS = g.St_allow / rc.st;
+        Tch = chainT(g.T_peak*box);          % kN into the chain at motor peak
         ok  = FOS > 1.5 && rk.sc < g.Sc_allow;
-        fprintf(' %2d  %2d  %.3f  %.3f  |  %4.0f MPa    %.2f   |  %4.0f MPa   %5.0f MPa   | %s\n', ...
-            Np, Ng, box, box*chain, rc.st, FOS, rk.st, rk.sc, ternary(ok,'PASS','check it'));
+        fprintf(' %2d  %2d  %.3f  %.3f  |  %4.0f MPa   %.2f  |  %4.0f MPa   %5.0f MPa    |  %5.1f kN   | %s\n', ...
+            Np, Ng, box, box*chain.ratio, rc.st, FOS, rk.st, rk.sc, Tch, ternary(ok,'PASS','check it'));
     end
 end
 if ~found, fprintf(' (nothing lands within 0.03 of that ratio -- widen the tooth range)\n'); end
 fprintf('\nFOS = allowable bending / actual bending at continuous torque. >1.5 = comfy.\n');
+if ~mat_is_real
+fprintf('    (still %s allowables -- FOS comparisons between rows are solid,\n', material);
+fprintf('     absolute values are not. Ask what steel we''re buying.)\n');
+end
 fprintf('Contact stress at PEAK is the one that pits teeth -- keep it under %.0f MPa.\n', g.Sc_allow);
+fprintf('Chain@peak = tension the chain sees at motor peak torque with that gearbox\n');
+fprintf('    (today: %.1f kN). Lower box ratio -> lower chain tension, free bonus.\n', chainT(g.T_peak*2));
 fprintf('J comes from the digitized AGMA chart (lib/spur_gear_J.m), 20 deg standard.\n');
 fprintf('Shifted gears would read higher -- this file is conservative for those.\n');
 
