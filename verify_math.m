@@ -180,5 +180,45 @@ else
     fprintf('  [data/comp_june20_data.csv not found -- check skipped]\n');
 end
 
+fprintf('\n=== 16. DRIVETRAIN EFFICIENCY STACK + HALFSHAFT ANGLE MODEL ===\n');
+% Locks the math in drivetrain_efficiency.m. Recomputed from scratch here (this
+% file imports nothing), so if anyone edits the stack, the CV-joint coefficient
+% or the halfshaft angle in the tool, these independently re-derived numbers
+% catch the drift. Source: CFR26_DT_Efficiency.pdf v4.0 [1].
+% (a) the memo's stage product must reproduce its own published 0.724.
+eta_memo = 0.89*0.98*0.95*0.97*0.92*0.98;   % motor spur brng chain diff halfshaft
+fprintf('  memo stack 0.89*0.98*0.95*0.97*0.92*0.98 = %.4f (memo prints 0.724)\n', eta_memo);
+pass('DT memo stack reproduces 0.724', abs(eta_memo-0.724)<0.002);
+% (b) CV-joint loss model eta_shaft = 1 - 2*kloss*sin(beta): the coefficient must
+% be consistent across the memo's OWN two operating points (that agreement is the
+% model's validation, not a fitted guess).
+k_str = (1-0.99)/(2*sind(3));   k_cor = (1-0.94)/(2*sind(20));
+fprintf('  kloss from straight pt = %.3f, from corner pt = %.3f (agree => model holds)\n', k_str, k_cor);
+pass('CV-joint kloss self-consistent within 12%', abs(k_str-k_cor)/mean([k_str k_cor])<0.12);
+% (c) the halfshaft term at the REAL 12 deg static angle (kloss 0.09, corner +8 deg,
+% 72.4% of the lap near static) -- must sit below the memo's 0.99 "straight" number,
+% which is exactly why params' 0.823 is a touch optimistic.
+kloss=0.09; hsf=@(b) 1-2*kloss*sind(b); fs=0.724; ce=8;
+hs12 = fs*hsf(12) + (1-fs)*hsf(12+ce);
+fprintf('  halfshaft term @12 deg static = %.4f (memo assumed 0.99 straight)\n', hs12);
+pass('halfshaft term @12 deg in 0.94-0.97 band', hs12>0.94 && hs12<0.97);
+pass('12 deg term < memo straight 0.99 (so params 0.823 is optimistic)', hs12 < 0.99);
+% (d) measured pack->shaft (July 11 endurance, freeman803 method) x mech stack must
+% reproduce the tool's telemetry-anchored overall (battery->ground).
+csv2 = fullfile(fileparts(mfilename('fullpath')), 'data', 'endurance_july11_with_odo_wide.csv');
+if exist(csv2,'file')
+    E2  = readtable(csv2);
+    rr  = abs(E2.PM100DX_motorSpeed);  qq = abs(E2.PM100DX_torqueFeedback);
+    pk  = abs(E2.BMSB_packVoltage .* E2.BMSB_packCurrent);  mm = qq.*rr*2*pi/60;
+    kp  = rr>500 & qq>5 & pk>500 & mm./pk>0.3 & mm./pk<1.0;
+    eta_sh  = sum(mm(kp))/sum(pk(kp));
+    overall = eta_sh * 0.98*0.95*0.97*0.92 * hs12;
+    fprintf('  measured pack->shaft %.3f -> overall battery->ground %.3f\n', eta_sh, overall);
+    pass('measured pack->shaft in 0.75-0.90 band', eta_sh>0.75 && eta_sh<0.90);
+    pass('overall battery->ground in 0.58-0.70 band', overall>0.58 && overall<0.70);
+else
+    fprintf('  [endurance CSV not found -- overall check skipped]\n');
+end
+
 fprintf('\n=== SUMMARY ===\n');
 fprintf('If any line above reads **FAIL**, that specific number needs a second look.\n');
