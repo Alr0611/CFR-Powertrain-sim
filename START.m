@@ -19,7 +19,7 @@ fprintf('  Type one of these and hit enter:\n\n');
 fprintf('    gear_ratio_optimization   the main study (efficiency + pack charge, 4 figures)\n');
 fprintf('    accel_model               0-75m / 0-100kph accel study\n');
 fprintf('    drivetrain_efficiency     overall battery->ground eff + every design lever (halfshaft angle...)\n');
-fprintf('    verify_math               33 checks that recompute everything from scratch\n');
+fprintf('    verify_math               35 checks that recompute everything from scratch\n');
 fprintf('\n');
 fprintf('  more:\n');
 fprintf('    fatigue_spectrum          endurance driveline torque spectrum\n');

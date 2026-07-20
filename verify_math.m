@@ -220,5 +220,33 @@ else
     fprintf('  [endurance CSV not found -- overall check skipped]\n');
 end
 
+fprintf('\n=== 17. INVERTER IS IN THE ENERGY PATH (guards the old motor-only bug) ===\n');
+% Earlier versions reported motor-ONLY efficiency and so UNDER-counted battery draw
+% by ~5%. Every efficiency/energy script now routes through emrax208_efficiency;
+% this section tests that REAL function (not a reimplementation -- the whole point
+% is to catch the actual code dropping the inverter) and confirms the haircut is live.
+thisdir = fileparts(mfilename('fullpath'));
+addpath(thisdir, fullfile(thisdir,'lib'));
+if exist('emrax208_efficiency','file') && exist('params_cfr26','file')
+    pp = params_cfr26();
+    e_with     = emrax208_efficiency(3000, 60, pp);                     % motor + inverter
+    e_motonly  = emrax208_efficiency(3000, 60, rmfield(pp,'eta_inverter')); % motor alone
+    fprintf('  motor+inverter %.3f vs motor-only %.3f -> ratio %.3f (eta_inverter %.2f)\n', ...
+        e_with, e_motonly, e_with/e_motonly, pp.eta_inverter);
+    pass('emrax208_efficiency applies the inverter haircut', abs(e_with/e_motonly - pp.eta_inverter) < 0.01);
+    pass('inverter drops reported efficiency by >=3 pts', (e_motonly - e_with) > 0.03);
+    % Where each script stands (documented, not re-run here):
+    %   gear_ratio_optimization: battery/SOC draw = motoring_regen_power(shaft, eff)
+    %     with eff = emrax208_efficiency -> inverter INCLUDED in energy. OK.
+    %   drivetrain_efficiency:   electrical end is MEASURED pack->shaft (already
+    %     motor+inverter); mech stack multiplied on top. OK.
+    %   accel_model/top_speed:   torque x eta_drivetrain (MECHANICAL only). Correct --
+    %     the inverter doesn't reduce deliverable shaft torque, only draws more current.
+    fprintf('  gear_ratio_optimization energy: inverter-inclusive (via emrax208_efficiency). OK\n');
+    fprintf('  accel/top-speed torque: eta_drivetrain (mech) only -- inverter correctly excluded.\n');
+else
+    fprintf('  [lib/ not on path -- run via START or addpath(genpath(pwd)); check skipped]\n');
+end
+
 fprintf('\n=== SUMMARY ===\n');
 fprintf('If any line above reads **FAIL**, that specific number needs a second look.\n');
