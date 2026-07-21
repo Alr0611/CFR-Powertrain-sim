@@ -202,34 +202,17 @@ xline(5,'-','Color',[0.30 0.62 0.40],'LineWidth',1.0,'Label','0-5° target band'
 title('Straighter halfshafts \rightarrow higher efficiency, less battery per lap');
 figs(end+1) = f2;
 
-% ---- Fig 3: per-stage opportunity -- battery saved (%) if each stage hits its best ----
-[svs, idx] = sort(save_fr*100);
-f3 = figure('Name','Per-stage opportunity','Position',[80 80 960 470]);
-barh(svs,'FaceColor',[0.30 0.62 0.40],'EdgeColor','none'); grid on;
-set(gca,'YTick',1:numel(names),'YTickLabel',names(idx));
-xlabel('Endurance battery saved if this stage reaches its realistic best (%)');
-text(svs+0.1, 1:numel(svs), compose('%.1f%%',svs), 'VerticalAlignment','middle');
-title('Where the range is: every stage, ranked');
-figs(end+1) = f3;
-
-% ---- Fig 4: MEASURED efficiency map (the twin of freeman803's surf plot) ----
-if isfile(csv)
-    Wm = readtable(csv);
-    M  = measured_efficiency_map(Wm.PM100DX_motorSpeed, Wm.PM100DX_torqueFeedback, ...
-                                 Wm.BMSB_packVoltage,  Wm.BMSB_packCurrent);
-    f4 = figure('Name','Measured pack-to-shaft map','Position',[90 90 760 470]);
-    imagesc(M.rpmCenters, M.tqCenters, M.eff*100, 'AlphaData', ~isnan(M.eff)); axis xy;
-    colormap(parula); cb = colorbar; cb.Label.String = 'Motor+inverter eff (%)'; caxis([70 95]);
-    xlabel('Motor rpm'); ylabel('Motor torque (Nm)');
-    title(sprintf('MEASURED motor+inverter map (af/dteff method), overall %.1f%%', M.eff_overall*100));
-    figs(end+1) = f4;
-end
+% Only two figures earn their place: the waterfall (where the energy goes) and the
+% halfshaft sweep (the one continuous design lever). The per-stage opportunity bar
+% was just the printed "WHERE THE LOSSES ARE" table redrawn, and the measured
+% pack->shaft map is a cross-validation artifact -- both dropped. The measured-vs-
+% model figure lives in analysis/efficiency_crosscheck.m, which is its proper home.
 
 for fh = figs
     nm = fullfile(outdir, matlab.lang.makeValidName(['DTeff_' fh.Name]));
     savefig(fh, [nm '.fig']); try, saveas(fh, [nm '.png']); catch, end
 end
-fprintf('Saved %d figures to output/ (waterfall, angle sweep, per-stage opportunity, measured map).\n\n', numel(figs));
+fprintf('Saved %d figures to output/ (waterfall, halfshaft angle sweep).\n\n', numel(figs));
 
 fprintf('Sources: [1] CFR26_DT_Efficiency.pdf v4.0 (stage table + straight/corner time split).\n');
 fprintf('         Electrical end measured via freeman803 af/dteff method on July 11 telemetry.\n');
