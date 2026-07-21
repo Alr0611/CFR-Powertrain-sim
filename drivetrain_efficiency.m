@@ -133,9 +133,18 @@ for b = [0 2 4 5 6 8 10 12]
     fprintf('  %3.0f  |  %5.1f%%   |   %5.1f%%    |  %s%s\n', ...
         b, pct(hs_term(b)), pct(e), battxt(1-eff0/e, E_batt_Wh), tag);
 end
-fprintf('\n Bottom line: at %.0f deg the halfshafts cost the drivetrain ~%.1f%% vs straight;\n', ...
-    B.hs_angle, pct(overall(setf(B,'hs_angle',0)) - eff0));
-fprintf(' 0-5 deg is the CV-joint sweet spot -- free range, no new parts.\n\n');
+% Target band: 0-5 deg is the CV-joint sweet spot. The exact angle in there is set
+% by diff packaging, not efficiency, so report the whole band as a RANGE, not a point.
+e_str = overall(setf(B,'hs_angle',0));   % straight-ish end
+e_5   = overall(setf(B,'hs_angle',5));   % 5 deg end
+fprintf('\n TARGET BAND -- halfshafts in the 0-5 deg CV-joint sweet spot (a RANGE, not a point):\n');
+fprintf('   halfshaft term : %.1f%% (@5 deg)  ..  %.1f%% (@0 deg)\n', pct(hs_term(5)), pct(hs_term(0)));
+fprintf('   overall DT eff : %.1f%%  ..  %.1f%%   (up from %.1f%% at the current %.0f deg)\n', ...
+    pct(e_5), pct(e_str), pct(eff0), B.hs_angle);
+fprintf('   battery saved  : %s  ..  %s  per endurance lap\n', ...
+    battxt(1-eff0/e_5, E_batt_Wh), battxt(1-eff0/e_str, E_batt_Wh));
+fprintf('   Inside 0-5 deg the number barely moves -- getting OFF %.0f deg is the whole win;\n', B.hs_angle);
+fprintf('   the exact angle is a diff-packaging call, not an efficiency one.\n\n');
 
 %% ============================================================================
 %% 4. FIGURES (saved to output/)  -- so you can actually SEE and compare
@@ -163,7 +172,9 @@ f2 = figure('Name','Halfshaft angle sweep','Position',[70 70 820 470]);
 yyaxis left;  plot(angs, ov_a,'-','LineWidth',1.8); ylabel('Overall drivetrain efficiency (%)');
 yyaxis right; plot(angs, sv_a,'--','LineWidth',1.5); ylabel('Endurance battery saved (%)');
 xlabel('Halfshaft static angle (deg)'); grid on; xlim([0 12]);
+try, xregion(0,5,'FaceColor',[0.30 0.62 0.40],'FaceAlpha',0.12); catch, end   % 0-5 deg target band
 xline(B.hs_angle,'r:','LineWidth',1.3,'Label',sprintf('current %d°',B.hs_angle),'LabelOrientation','horizontal');
+xline(5,'-','Color',[0.30 0.62 0.40],'LineWidth',1.0,'Label','0-5° target band','LabelOrientation','horizontal','LabelVerticalAlignment','bottom');
 title('Straighter halfshafts \rightarrow higher efficiency, less battery per lap');
 figs(end+1) = f2;
 
