@@ -104,10 +104,13 @@ fprintf('\n=== 10. HV VARIANT CONFIRMATION (user: car is 370V HV) ===\n');
 fprintf('  88S x 4.2V = %.1f V max = "370V" -> under HV 470V limit -> HV constants correct\n', 88*4.2);
 pass('370V pack uses HV datasheet column (max 470V)', 88*4.2 < 470 && 88*4.2 > 320);
 
-fprintf('\n=== 11. DRIVETRAIN EFFICIENCY CHAIN ===\n');
-chain = 0.98*0.95*0.97*0.92*0.99;   % gears x bearings x chain x diff x straight-halfshaft
-fprintf('  0.98 x 0.95 x 0.97 x 0.92 x 0.99 = %.4f (used: 0.823)\n', chain);
-pass('drivetrain chain product = 0.823', abs(chain-0.823)<0.002);
+fprintf('\n=== 11. DRIVETRAIN EFFICIENCY CHAIN (mechanical hardware) ===\n');
+mech_no_hs = 0.98*0.95*0.97*0.92;              % gears x bearings x chain x diff
+chain_str  = mech_no_hs*0.99;                  % + straight halfshaft (old design-target value)
+chain_12   = mech_no_hs*0.9559;                % + 12deg halfshaft (current car; drivetrain_efficiency)
+fprintf('  mech stack: straight-halfshaft %.4f | 12deg-halfshaft %.4f\n', chain_str, chain_12);
+pass('straight-halfshaft mech stack = 0.823 (the old value)', abs(chain_str-0.823)<0.002);
+pass('12deg mech stack = 0.794 (what params_cfr26 now uses)', abs(chain_12-0.794)<0.003);
 
 fprintf('\n=== 12. AERO FORCES from CFD dimensional values ===\n');
 q25 = 0.5*1.225*25^2;  % dynamic pressure at 25 m/s
@@ -235,6 +238,9 @@ if exist('emrax208_efficiency','file') && exist('params_cfr26','file')
         e_with, e_motonly, e_with/e_motonly, pp.eta_inverter);
     pass('emrax208_efficiency applies the inverter haircut', abs(e_with/e_motonly - pp.eta_inverter) < 0.01);
     pass('inverter drops reported efficiency by >=3 pts', (e_motonly - e_with) > 0.03);
+    % params eta_drivetrain must match the tool's 12deg mechanical hardware stack (0.794),
+    % so drivetrain_efficiency.m and the rest of the sim can't disagree on the hardware number.
+    pass('params eta_drivetrain matches 12deg hardware stack (0.794)', abs(pp.eta_drivetrain - 0.794) < 0.004);
     % Where each script stands (documented, not re-run here):
     %   gear_ratio_optimization: battery/SOC draw = motoring_regen_power(shaft, eff)
     %     with eff = emrax208_efficiency -> inverter INCLUDED in energy. OK.

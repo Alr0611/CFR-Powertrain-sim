@@ -45,40 +45,64 @@ HS_CORNER   = 8;       % extra deg of articulation in a loaded corner (on top of
 HS_FRAC_STR = 0.724;   % fraction of an endurance lap near the static angle (memo split)
 
 %% ============== the MEASURED electrical end (pack -> shaft), from telemetry ==============
-csv = fullfile(here, 'data', 'endurance_july11_with_odo_wide.csv');
-[eff_shaft, E_batt_Wh, dur_min, src] = measured_pack_to_shaft(csv);
+% AS-DRIVEN efficiency + energy come from the ENDURANCE run (the relevant duty cycle).
+% The in-band CEILING (motor actually loaded) comes from the harder COMP session's
+% steady-state points -- endurance's own steady points are still part-load.
+csv   = fullfile(here, 'data', 'endurance_july11_with_odo_wide.csv');
+comp  = fullfile(here, 'data', 'comp_june20_data.csv');
+[eff_shaft, ~, E_batt_Wh, dur_min, src] = measured_pack_to_shaft(csv);    % as-driven + energy
+[~, eff_inband]                          = measured_pack_to_shaft(comp);   % loaded-motor ceiling
 if isnan(eff_shaft)   % no telemetry -> fall back to our physics model at the continuous point
     try, eff_shaft = emrax208_efficiency(3500, 79.6, p); catch, eff_shaft = 0.89; end
     src = 'physics model (no telemetry found)';
 end
+if isnan(eff_inband), eff_inband = 0.86; end   % measured steady-state ceiling (verify_math sec 15)
 
 %% ============== helpers ==============
 eff_hs   = @(beta) 1 - 2*KLOSS*sind(beta);                       % one halfshaft, both joints
 hs_term  = @(static) HS_FRAC_STR*eff_hs(static) + (1-HS_FRAC_STR)*eff_hs(static+HS_CORNER);
 mech     = B.spur * B.bearings * B.chain * B.diff;              % mech stack minus the halfshaft
+eff_hw   = mech * hs_term(B.hs_angle);                         % HARDWARE only (mech incl halfshaft@current angle)
 overall  = @(S) eff_shaft * S.spur * S.bearings * S.chain * S.diff * hs_term(S.hs_angle);
 pct      = @(x) 100*x;
+memo_ref = 0.89 * 0.98 * mech;   % reproduce memo v4.0 with ITS assumptions (89% motor, 0.98 halfshaft)
 
-eff0 = overall(B);   % today's overall pack -> ground
+eff0 = overall(B);   % current overall pack -> ground, AS-DRIVEN (motor at its endurance part-load)
 
 %% ============================================================================
-%% 1. THE BASELINE WATERFALL -- where every bit of loss goes, current car (all %)
+%% 1. THE HEADLINE -- hardware first, then the motor, then the honest overall
 %% ============================================================================
-fprintf('=== OVERALL DRIVETRAIN EFFICIENCY: battery -> ground (current) ===\n');
-fprintf(' electrical end is MEASURED: %s\n\n', src);
-fprintf('   motor + inverter (pack->shaft, MEASURED) . %5.1f%%\n', pct(eff_shaft));
-fprintf('   spur gearbox ............................. %5.1f%%\n', pct(B.spur));
-fprintf('   bearing stack ............................ %5.1f%%\n', pct(B.bearings));
-fprintf('   chain .................................... %5.1f%%\n', pct(B.chain));
-fprintf('   diff ..................................... %5.1f%%\n', pct(B.diff));
-fprintf('   halfshaft angle @ %2.0f deg ................. %5.1f%%\n', B.hs_angle, pct(hs_term(B.hs_angle)));
-fprintf('   --------------------------------------------------\n');
-fprintf('   OVERALL (battery -> ground) .............. %5.1f%%\n', pct(eff0));
-fprintf('   mechanical only (no motor/inverter) ...... %5.1f%%   (params_cfr26 says %.1f%%)\n\n', ...
-    pct(eff0/eff_shaft), pct(p.eta_drivetrain));
-fprintf(' Memo published 72.4%% overall; ours is lower because the MEASURED motor+inverter\n');
-fprintf(' (%.1f%%) is below the memo''s assumed 89%%, and the real halfshaft angle costs more\n', pct(eff_shaft));
-fprintf(' than its 99%% "straight" assumption. This is the honest, telemetry-anchored number.\n\n');
+% Lead with the HARDWARE number (motor-independent). The battery->ground figure is
+% split into a hardware-limited ceiling and a separate, labeled part-load cost, so
+% nobody reads "62%" as "our drivetrain hardware is 62% efficient" -- it isn't.
+fprintf('=== DRIVETRAIN EFFICIENCY: battery -> ground ===\n');
+fprintf(' (electrical end MEASURED from telemetry: %s)\n\n', src);
+
+fprintf(' HARDWARE -- the physical drivetrain, motor-independent:\n');
+fprintf('   spur %.0f%% x bearings %.0f%% x chain %.0f%% x diff %.0f%% x halfshaft@%ddeg %.1f%%\n', ...
+    pct(B.spur), pct(B.bearings), pct(B.chain), pct(B.diff), B.hs_angle, pct(hs_term(B.hs_angle)));
+fprintf('   = %.1f%% mechanical hardware efficiency   (params_cfr26 eta_drivetrain = %.1f%%)\n\n', ...
+    pct(eff_hw), pct(p.eta_drivetrain));
+
+fprintf(' MOTOR + INVERTER -- THREE numbers, each measuring a different thing:\n');
+fprintf('   ~90%%   physics model x eta_inverter at operating points -- gear_ratio_optimization\n');
+fprintf('          uses THIS to RANK ratios; it is a mild optimistic bound (verify_math sec 15)\n');
+fprintf('   %.1f%%  in efficient band -- MEASURED steady-state, comp session (motor loaded)\n', pct(eff_inband));
+fprintf('   %.1f%%  as-driven -- MEASURED energy-weighted over the July 11 endurance run;\n', pct(eff_shaft));
+fprintf('          endurance is driven gently, so even its steady points sit here (part-load,\n');
+fprintf('          not a transient artifact).\n\n');
+
+fprintf(' OVERALL = motor x hardware:\n');
+fprintf('   %.1f%%  memo v4.0 -- we REPRODUCE it from the memo''s own assumptions (89%% motor,\n', pct(memo_ref));
+fprintf('          0.98 halfshaft), confirming our stack is consistent with the memo\n');
+fprintf('   %.1f%%  in-band ceiling: %.1f%% motor x %.1f%% hardware -- realistic best (motor loaded)\n', ...
+    pct(eff_inband*eff_hw), pct(eff_inband), pct(eff_hw));
+fprintf('   %.1f%%  as-driven: %.1f%% motor x %.1f%% hardware -- what the endurance lap delivered\n', ...
+    pct(eff_shaft*eff_hw), pct(eff_shaft), pct(eff_hw));
+fprintf('\n The %.1f -> %.1f%% drop is a PART-LOAD / OPERATIONAL cost (motor off its efficient\n', ...
+    pct(eff_inband*eff_hw), pct(eff_shaft*eff_hw));
+fprintf(' band much of an endurance lap) -- a gearing/driving lever (gear_ratio_optimization),\n');
+fprintf(' NOT a hardware loss. The hardware is %.1f%% regardless of how it is driven.\n\n', pct(eff_hw));
 
 %% ============================================================================
 %% 2. WHERE THE LOSSES ARE + HEADROOM PER STAGE (every stage, same treatment)
@@ -88,7 +112,7 @@ fprintf(' than its 99%% "straight" assumption. This is the honest, telemetry-anc
 % efficient band), and what closing that gap buys. Everything multiplies, so a
 % stage going current c -> best b lifts overall by b/c and saves 1 - c/b of the pack.
 St = {  % name                current               best         how you'd get there
-    'motor + inverter',   eff_shaft,            0.86,       'OPERATIONAL: keep motor loaded / in its efficient band (steady ~86%) -- gear_ratio_optimization';
+    'motor + inverter',   eff_shaft,            eff_inband, 'OPERATIONAL: keep motor loaded / in its efficient band (measured ceiling) -- gear_ratio_optimization';
     'diff (LSD preload)', B.diff,               0.94,       'lower preload (top of Drexler range)';
     'bearing stack',      B.bearings,           0.97,       'low-drag / ceramic-hybrid bearings';
     'halfshaft angle',    hs_term(B.hs_angle),  hs_term(0), 'straighten geometry 12 -> 0 deg (CV joints)';
@@ -161,7 +185,7 @@ bar(remain,'FaceColor',[0.20 0.45 0.72],'EdgeColor','none'); hold on; grid on; y
 set(gca,'XTick',1:numel(lbl),'XTickLabel',lbl); xtickangle(20);
 ylabel('Energy remaining (%)');
 text(1:numel(remain), remain+2.2, compose('%.1f%%',remain), 'HorizontalAlignment','center','FontWeight','bold');
-title(sprintf('Battery \\rightarrow ground: %.1f%% reaches the wheels (current, %d° halfshafts)', remain(end), B.hs_angle));
+title(sprintf('Battery \\rightarrow ground, as-driven: %.1f%% reaches the wheels at %d° halfshafts', remain(end), B.hs_angle));
 figs(end+1) = f1;
 
 % ---- Fig 2: halfshaft angle sweep -- overall eff and battery saved vs angle ----
@@ -222,11 +246,16 @@ function s = battxt(frac, Wh)
     else,         s = sprintf('+%.0f Wh (+%.2f%%)', frac*Wh, frac*100); end
 end
 
-function [eff, E_batt_Wh, dur_min, src] = measured_pack_to_shaft(csv)
+function [eff, eff_steady, E_batt_Wh, dur_min, src] = measured_pack_to_shaft(csv)
 %MEASURED_PACK_TO_SHAFT  freeman803's af/dteff number from a telemetry CSV.
-%   Energy-weighted eff = sum(mech power)/sum(pack power) over motoring points,
-%   plus total pack energy (Wh) and run length so we can price battery savings.
-    eff = NaN; E_batt_Wh = NaN; dur_min = NaN; src = '';
+%   eff        = AS-DRIVEN: energy-weighted sum(mech)/sum(pack) over ALL motoring
+%                points (part-load + transients included -- what actually happened).
+%   eff_steady = same but STEADY-STATE only (constant speed & torque -- transients
+%                filtered out). On a hard-driven session this is the loaded-motor
+%                ceiling; on a gently-driven endurance run it can EQUAL eff, because
+%                the whole run is part-load (so the low number isn't a transient bug).
+%   Also returns pack energy (Wh) and run length for pricing battery savings.
+    eff = NaN; eff_steady = NaN; E_batt_Wh = NaN; dur_min = NaN; src = '';
     if ~isfile(csv), return; end
     W = readtable(csv);
     need = {'PM100DX_motorSpeed','PM100DX_torqueFeedback','BMSB_packVoltage','BMSB_packCurrent','t_s'};
@@ -235,10 +264,12 @@ function [eff, E_batt_Wh, dur_min, src] = measured_pack_to_shaft(csv)
     V   = W.BMSB_packVoltage;         I  = W.BMSB_packCurrent;
     pack = abs(V .* I);               mechP = tq .* rpm * 2*pi/60;
     e = mechP ./ max(pack, 1e-6);
-    keep = rpm>500 & tq>5 & pack>500 & e>0.3 & e<1.0;   % clean motoring points
-    eff = sum(mechP(keep)) / sum(pack(keep));
+    keep = rpm>500 & tq>5 & pack>500 & e>0.3 & e<1.0;         % clean motoring points
+    eff = sum(mechP(keep)) / sum(pack(keep));                % AS-DRIVEN
+    steady = keep & movstd(rpm,11)<40 & movstd(tq,11)<3;     % constant speed & torque only
+    if nnz(steady) > 50, eff_steady = sum(mechP(steady)) / sum(pack(steady)); end
     t = W.t_s; P = V .* I; P(isnan(P)) = 0;
     E_batt_Wh = abs(trapz(t, P)) / 3600;
     dur_min = (t(end)-t(1))/60;
-    src = sprintf('July 11 endurance telemetry, %d motoring samples', nnz(keep));
+    src = sprintf('%d motoring samples (%d steady-state)', nnz(keep), nnz(steady));
 end

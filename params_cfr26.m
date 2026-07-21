@@ -24,11 +24,19 @@ p.Q_cell     = 4.4 * 3600;  % How much charge one cell holds, in amp-SECONDS.
 p.gear_current  = 4.61;                                  % what's on the car now
 p.gears_to_test = unique(round([4.0:0.1:5.2, 4.61], 2)); % everything we're trying
 
-%% ---- DRIVETRAIN ----
-p.eta_drivetrain = 0.823;   % Of the power the motor makes, ~82% reaches the ground.
-                            % The other 18% becomes heat and noise in the gears,
-                            % bearings, chain, diff, and halfshafts. (From our own
-                            % DT efficiency memo. Assumes STRAIGHT halfshafts.)
+%% ---- DRIVETRAIN (mechanical hardware, motor-independent) ----
+p.eta_drivetrain = 0.794;   % Of the mechanical power the motor makes, ~79% reaches the
+                            % ground; the rest is heat in the gears, bearings, chain, diff,
+                            % and halfshafts. This is the CURRENT car:
+                            %   spur x bearings x chain x diff x halfshaft@12deg
+                            %   = 0.98 x 0.95 x 0.97 x 0.92 x 0.956 = 0.794
+                            % (was 0.823 when we assumed STRAIGHT halfshafts; the real 12deg
+                            % halfshaft angle costs the difference -- see drivetrain_efficiency.m
+                            % for the full stack + per-stage breakdown). Straightening the
+                            % halfshafts to 0-5deg raises this back toward ~0.82.
+                            % NOTE: this value CANCELS in the SOC / gear-ratio math (wheel
+                            % power is ratio-invariant, verify_math sec 7), so it does not move
+                            % the recommendation; it only sets absolute accel/top-speed force.
 
 %% ---- THE CAR ITSELF ----
 p.m_car   = 294;            % kg, car + driver, on actual scales. (MEASURED)

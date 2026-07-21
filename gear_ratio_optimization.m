@@ -188,6 +188,9 @@ fprintf(' RANGE  %4.1f-%4.1f %4.1f-%4.1f %4.2f-%4.2f  %4.2f-%4.2f            %5.
 fprintf(' 98%%-start final SOC: %.1f%% (4.20) ... %.1f%% (4.61) ... %.1f%% (5.20)\n', ...
     R(abs([R.ratio]-4.20)<0.01).SOC98, R(icur).SOC98, R(abs([R.ratio]-5.20)<0.01).SOC98);
 fprintf(' Accel band = +/-15%% longitudinal-mu uncertainty (Calspan ran no long. sweep).\n');
+fprintf(' Eff/AvgEff = motor+inverter (physics model x eta_inverter) at each ratio''s operating\n');
+fprintf('   points -- for RANKING ratios; a mild optimistic bound. MEASURED as-driven over\n');
+fprintf('   endurance is ~78%%. Full battery->ground stack + per-stage: drivetrain_efficiency.m\n');
 fprintf('=======================================================================================\n');
 
 %% ================= FIGURES (4) =================
