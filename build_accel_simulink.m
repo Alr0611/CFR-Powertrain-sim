@@ -9,7 +9,8 @@
 % REQUIRES SIMULINK. Run:  >> build_accel_simulink   then   >> sweep_accel_sim
 % Constants are pulled from params_cfr26.m at build time (single source of
 % truth); re-run this builder after changing params.
-% VALIDATED: 0-75m at 4.61:1 = 4.71 s, matching accel_model.m (4.72 s).
+% VALIDATED: 0-75m at 4.61:1 = 4.80 s, matching accel_model.m (4.80 s) at the
+% current eta_drivetrain = 0.794 (rebuild after changing params to stay in sync).
 
 function build_accel_simulink()
 addpath(fullfile(fileparts(mfilename('fullpath')), 'lib'));  % works wherever MATLAB is pointed
@@ -83,6 +84,12 @@ add_line(mdl,'reach75/1','Stop/1','autorouting','on');
 
 % ---- Solver / config ----
 set_param(mdl,'SolverType','Variable-step','Solver','ode45','StopTime','15','MaxStep','0.005');
+% Make the model runnable standalone. The Gval Constant block reads 'G_ratio' from
+% the base workspace; if someone just opens accel_sim.slx and hits Run without
+% setting it, the block errors ("Invalid setting ... for parameter 'Value'"). This
+% InitFcn defaults it to the current 4.61 only when it isn't already defined, so a
+% bare Run works AND sweep_accel_sim (which sets G_ratio each iteration) still wins.
+set_param(mdl,'InitFcn','if ~exist(''G_ratio'',''var''), G_ratio = 4.61; end');
 assignin('base','G_ratio',4.61);
 
 save_system(mdl, fullfile(pwd, [mdl '.slx']));
