@@ -45,32 +45,30 @@ for g = [4.0 4.2 p.gear_current 5.2]
     fprintf(' %.2f:1 -> %.2f s\n', g, recovery_40_80(g, p));
 end
 
-%% ---- FIGURES ----
-f1 = figure('Name','accel_sweep','Position',[60 60 950 430]);
-subplot(1,2,1); plot(gears,t100,'LineWidth',1.6); hold on; xline(p.gear_current,'k--','current');
-    xlabel('Gear ratio'); ylabel('0-100 kph (s)'); grid on; title('0-100 kph');
-subplot(1,2,2); plot(gears,t75,'LineWidth',1.6); hold on; xline(p.gear_current,'k--','current');
-    yline(4.40,'g:','real 4.40s'); xlabel('Gear ratio'); ylabel('0-75 m (s)'); grid on; title('0-75 m (monotonic)');
-sgtitle('Accel favors HIGH ratio (opposite of efficiency) — no strong U for this car');
-
+%% ---- FIGURES (one window, 4 panels) ----
 p0 = p; p0.I_rotor=0; p0.I_driveline=0; p0.I_wheel=0;
 t75_noI = nan(size(gears)); for i=1:numel(gears), [~,t75_noI(i),~]=accel_run(gears(i),p0); end
-f2 = figure('Name','inertia_effect');
-plot(gears,t75,'LineWidth',1.6,'DisplayName','With rotational inertia'); hold on;
-plot(gears,t75_noI,'--','LineWidth',1.4,'DisplayName','Point-mass (no inertia)');
-xline(p.gear_current,'k:','HandleVisibility','off');
-xlabel('Gear ratio'); ylabel('0-75 m (s)'); grid on; legend('Location','north');
-title('Rotational inertia adds ~0.15s and flattens the high-ratio end');
 
-f3 = tractive_effort_fig(p);
+fA = figure('Name','Accel study','Position',[40 40 1300 780]);
+tl = tiledlayout(fA,2,2,'TileSpacing','compact','Padding','compact');
+
+nexttile(tl); plot(gears,t100,'LineWidth',1.6); hold on; xline(p.gear_current,'k--','current');
+    xlabel('Gear ratio'); ylabel('0-100 kph (s)'); grid on; title('0-100 kph');
+nexttile(tl); plot(gears,t75,'LineWidth',1.6); hold on; xline(p.gear_current,'k--','current');
+    yline(4.40,'g:','real 4.40s'); xlabel('Gear ratio'); ylabel('0-75 m (s)'); grid on; title('0-75 m (monotonic)');
+nexttile(tl); plot(gears,t75,'LineWidth',1.6,'DisplayName','With rotational inertia'); hold on;
+    plot(gears,t75_noI,'--','LineWidth',1.4,'DisplayName','Point-mass (no inertia)');
+    xline(p.gear_current,'k:','HandleVisibility','off');
+    xlabel('Gear ratio'); ylabel('0-75 m (s)'); grid on; legend('Location','north');
+    title('Rotational-inertia effect (~0.15s, flattens the high-ratio end)');
+nexttile(tl); tractive_effort_plot(gca, p, gears);
+title(tl,'Accel favors HIGH ratio (opposite of efficiency). Tractive-effort curves merge where power-limited.');
 
 writetable(table(gears', t100', t75', vtrap', 'VariableNames',{'ratio','t0_100kph','t0_75m','trap_kph'}), ...
     'output/accel_results.csv');
-for fh=[f1 f2 f3]
-    nm=fullfile('output',matlab.lang.makeValidName(fh.Name));
-    savefig(fh,[nm '.fig']); try, saveas(fh,[nm '.png']); catch, end
-end
-fprintf('\nSaved: output/accel_results.csv + 3 figures\n');
+nm = fullfile('output', matlab.lang.makeValidName(fA.Name));
+savefig(fA,[nm '.fig']); try, saveas(fA,[nm '.png']); catch, end
+fprintf('\nSaved: output/accel_results.csv + 1 figure window (4 panels)\n');
 
 %% ================= LOCAL FUNCTIONS =================
 function [t100, t75, vtrap] = accel_run(G, p)
@@ -118,16 +116,19 @@ function t = recovery_40_80(G, p)
     end
 end
 
-function fh = tractive_effort_fig(p)
-    v = (1:0.25:38)'; te = [4.0 4.2 p.gear_current 5.2];
-    fh = figure('Name','tractive_effort','Position',[80 80 900 480]); hold on;
-    for j=1:numel(te)
+function tractive_effort_plot(ax, p, gears)
+    % Tractive effort vs speed for the WHOLE ratio sweep, colored by ratio; the
+    % traction limit and drag+rolling drawn in black. Plots into axes `ax`.
+    hold(ax,'on');
+    v = (1:0.25:38)';
+    cmap = turbo(numel(gears));
+    for j=1:numel(gears)
         F=zeros(size(v));
         for k=1:numel(v)
-            rpm=v(k)/p.r_wheel*te(j)*60/(2*pi);
-            if rpm>p.redline, F(k)=NaN; else, F(k)=motor_peak_torque(rpm,p)*te(j)*p.eta_drivetrain/p.r_wheel; end
+            rpm=v(k)/p.r_wheel*gears(j)*60/(2*pi);
+            if rpm>p.redline, F(k)=NaN; else, F(k)=motor_peak_torque(rpm,p)*gears(j)*p.eta_drivetrain/p.r_wheel; end
         end
-        plot(v*3.6,F,'LineWidth',1.5,'DisplayName',sprintf('%.2f:1',te(j)));
+        plot(ax, v*3.6, F, 'Color', cmap(j,:), 'LineWidth', 1, 'HandleVisibility','off');
     end
     Ftr=zeros(size(v)); Fr=zeros(size(v));
     for k=1:numel(v)
@@ -139,8 +140,10 @@ function fh = tractive_effort_fig(p)
         end
         Fr(k)=0.5*p.rho_air*p.CdA*vv^2 + p.Crr*(p.m_car*p.g+Fd);
     end
-    plot(v*3.6,Ftr,'k--','LineWidth',1.5,'DisplayName','Traction limit (rear)');
-    plot(v*3.6,Fr,'k:','LineWidth',1.5,'DisplayName','Drag + rolling');
-    xlabel('Speed (kph)'); ylabel('Force at wheels (N)'); grid on; legend('Location','northeast'); ylim([0 3200]);
-    title('Tractive effort vs speed: curves merge where power-limited (gearing stops mattering)');
+    plot(ax, v*3.6,Ftr,'k--','LineWidth',1.5,'DisplayName','Traction limit (rear)');
+    plot(ax, v*3.6,Fr,'k:','LineWidth',1.5,'DisplayName','Drag + rolling');
+    colormap(ax, turbo); clim(ax,[gears(1) gears(end)]); cb=colorbar(ax); cb.Label.String='Gear ratio';
+    xlabel(ax,'Speed (kph)'); ylabel(ax,'Force at wheels (N)'); grid(ax,'on');
+    legend(ax,'Location','northeast'); ylim(ax,[0 3200]);
+    title(ax,'Tractive effort vs speed (all ratios)');
 end

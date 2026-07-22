@@ -113,19 +113,23 @@ for si = starts'
     cnt = cnt+1; if cnt==ih, s = si; ee = e; break; end
 end
 seg = s:ee; tt = t(seg)-t(s);
-fig1 = figure('Name','Hardest launch','Position',[60 60 900 620]);
-subplot(2,1,1);
+% One window: top row = the hardest launch (torque + speed), bottom = the
+% accel-vs-endurance load spectrum spanning the width.
+fF = figure('Name','Accel fatigue','Position',[40 40 1200 760]);
+tl = tiledlayout(fF,2,2,'TileSpacing','compact','Padding','compact');
+
+nexttile(tl);
 plot(tt, abs(tc(seg)), 'LineWidth',1.3,'DisplayName','Requested (command)'); hold on;
 plot(tt, Tf(seg), 'LineWidth',1.3,'DisplayName','Delivered (feedback)');
 yline(150,'r--','150 Nm spec peak','HandleVisibility','off');
-ylabel('Motor torque (Nm)'); legend('Location','northeast'); grid on;
-title(sprintf('Hardest segment â€” de-spiked peak %.0f Nm (raw %.0f)', max(Tf(seg)), max(Tf_raw(seg))));
-subplot(2,1,2);
+ylabel('Motor torque (Nm)'); xlabel('Time (s)'); legend('Location','northeast'); grid on;
+title(sprintf('Hardest segment -- de-spiked peak %.0f Nm (raw %.0f)', max(Tf(seg)), max(Tf_raw(seg))));
+
+nexttile(tl);
 plot(tt, v(seg)*3.6, 'LineWidth',1.3); ylabel('Speed (kph)'); xlabel('Time (s)'); grid on;
 title('Vehicle speed');
 
-% 2) accel vs endurance spectrum
-fig2 = figure('Name','Accel vs endurance torque spectrum','Position',[80 80 900 480]);
+nexttile(tl,[1 2]);
 ctr = (edges(1:end-1)+edges(2:end))/2;
 % comp endurance spectrum (from fatigue_spectrum.m), 11 bins + 150-160 bin = 0
 end_spec = [41.5 17.1 15.6 13.1 6.6 2.8 3.1 0.2 0.1 0 0 0];   % 12 values = 12 accel bins
@@ -133,9 +137,9 @@ bar(ctr, [end_spec; spec*100]', 'grouped');
 legend('Endurance (comp)','Accel (comp)','Location','northeast');
 xline(150,'r--','spec peak','HandleVisibility','off');
 xlabel('Motor torque bin (Nm)'); ylabel('% of loaded time');
-title('Where the driveline gets loaded: endurance vs accel');
-subtitle('Endurance stays low; accel fills the 120-160 Nm bins -- the fatigue-critical load case.');
+title('Driveline load: endurance stays low; accel fills 120-160 Nm -- the fatigue-critical case');
 
-savefig(fig1,'output/accel_hardest_launch.fig'); savefig(fig2,'output/accel_vs_endurance_spectrum.fig');
-try, saveas(fig1,'output/accel_hardest_launch.png'); saveas(fig2,'output/accel_vs_endurance_spectrum.png'); catch, end
-fprintf('\nSaved: fatigue_spectrum_accel.csv, accel_hardest_launch.fig/png, accel_vs_endurance_spectrum.fig/png\n');
+title(tl,'Accel fatigue: hardest launch + torque load spectrum');
+nm = fullfile('output', matlab.lang.makeValidName(fF.Name));
+savefig(fF,[nm '.fig']); try, saveas(fF,[nm '.png']); catch, end
+fprintf('\nSaved: output/fatigue_spectrum_accel.csv + 1 figure window (AccelFatigue)\n');

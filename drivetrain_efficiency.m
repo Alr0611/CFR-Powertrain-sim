@@ -173,46 +173,41 @@ fprintf('   the exact angle is a diff-packaging call, not an efficiency one.\n\n
 %% ============================================================================
 %% 4. FIGURES (saved to output/)  -- so you can actually SEE and compare
 %% ============================================================================
+% One window, two panels: the two charts that earn their place -- the waterfall
+% (where the energy goes) and the halfshaft sweep (the one continuous design lever).
+% (The per-stage bar was just the printed table redrawn; the measured pack->shaft
+% map is a cross-validation artifact that lives in analysis/efficiency_crosscheck.m.)
 outdir = fullfile(here,'output'); if ~exist(outdir,'dir'), mkdir(outdir); end
-figs = gobjects(0);
+fW = figure('Name','Drivetrain efficiency','Position',[40 40 1320 520]);
+tl = tiledlayout(fW,1,2,'TileSpacing','compact','Padding','compact');
 
-% ---- Fig 1: waterfall -- energy remaining (%) after each stage, current car ----
+% -- panel 1: waterfall, energy remaining (%) after each stage --
+nexttile(tl);
 lbl   = {'Battery','+ motor/inv','+ spur','+ bearings','+ chain','+ diff', sprintf('+ halfshaft@%d°',B.hs_angle)};
 efac  = [1, eff_shaft, B.spur, B.bearings, B.chain, B.diff, hs_term(B.hs_angle)];
 remain = cumprod(efac)*100;
-f1 = figure('Name','DT efficiency waterfall','Position',[60 60 860 470]);
 bar(remain,'FaceColor',[0.20 0.45 0.72],'EdgeColor','none'); hold on; grid on; ylim([0 112]);
 set(gca,'XTick',1:numel(lbl),'XTickLabel',lbl); xtickangle(20);
 ylabel('Energy remaining (%)');
 text(1:numel(remain), remain+2.2, compose('%.1f%%',remain), 'HorizontalAlignment','center','FontWeight','bold');
-title(sprintf('Battery \\rightarrow ground, as-driven: %.1f%% reaches the wheels at %d° halfshafts', remain(end), B.hs_angle));
-figs(end+1) = f1;
+title(sprintf('Battery \\rightarrow ground, as-driven: %.1f%% reaches the wheels', remain(end)));
 
-% ---- Fig 2: halfshaft angle sweep -- overall eff and battery saved vs angle ----
+% -- panel 2: halfshaft angle sweep, overall eff + battery saved vs angle --
+nexttile(tl);
 angs  = 0:0.5:12;
 ov_a  = arrayfun(@(bb) overall(setf(B,'hs_angle',bb)), angs)*100;
 sv_a  = (1 - eff0./(ov_a/100))*100;
-f2 = figure('Name','Halfshaft angle sweep','Position',[70 70 820 470]);
 yyaxis left;  plot(angs, ov_a,'-','LineWidth',1.8); ylabel('Overall drivetrain efficiency (%)');
 yyaxis right; plot(angs, sv_a,'--','LineWidth',1.5); ylabel('Endurance battery saved (%)');
 xlabel('Halfshaft static angle (deg)'); grid on; xlim([0 12]);
 try, xregion(0,5,'FaceColor',[0.30 0.62 0.40],'FaceAlpha',0.12); catch, end   % 0-5 deg target band
 xline(B.hs_angle,'r:','LineWidth',1.3,'Label',sprintf('current %d°',B.hs_angle),'LabelOrientation','horizontal');
-xline(5,'-','Color',[0.30 0.62 0.40],'LineWidth',1.0,'Label','0-5° target band','LabelOrientation','horizontal','LabelVerticalAlignment','bottom');
-title('Straighter halfshafts \rightarrow higher efficiency, less battery per lap');
-figs(end+1) = f2;
+title('Straighter halfshafts (shaded 0-5° = sweet spot)');
 
-% Only two figures earn their place: the waterfall (where the energy goes) and the
-% halfshaft sweep (the one continuous design lever). The per-stage opportunity bar
-% was just the printed "WHERE THE LOSSES ARE" table redrawn, and the measured
-% pack->shaft map is a cross-validation artifact -- both dropped. The measured-vs-
-% model figure lives in analysis/efficiency_crosscheck.m, which is its proper home.
-
-for fh = figs
-    nm = fullfile(outdir, matlab.lang.makeValidName(['DTeff_' fh.Name]));
-    savefig(fh, [nm '.fig']); try, saveas(fh, [nm '.png']); catch, end
-end
-fprintf('Saved %d figures to output/ (waterfall, halfshaft angle sweep).\n\n', numel(figs));
+title(tl, 'Drivetrain efficiency: where the energy goes + the halfshaft-angle lever');
+nm = fullfile(outdir, 'DTeff_Drivetrain_efficiency');
+savefig(fW,[nm '.fig']); try, saveas(fW,[nm '.png']); catch, end
+fprintf('Saved 1 figure window to output/ (waterfall + halfshaft angle sweep).\n\n');
 
 fprintf('Sources: [1] CFR26_DT_Efficiency.pdf v4.0 (stage table + straight/corner time split).\n');
 fprintf('         Electrical end measured via freeman803 af/dteff method on July 11 telemetry.\n');

@@ -41,7 +41,7 @@ Then type any script name at the MATLAB prompt, e.g.:
 
 ```matlab
 drivetrain_efficiency     % battery->ground efficiency + every design lever (NEW)
-gear_ratio_optimization   % the main study — efficiency + pack charge sweep, 4 figures
+gear_ratio_optimization   % the main study — efficiency + pack charge sweep (dashboard + op-points map)
 accel_model               % accel — 0-75m, 0-100kph, tyre-weight sensitivity
 verify_math               % 37 checks that recompute everything from scratch
 ```

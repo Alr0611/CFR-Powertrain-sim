@@ -200,7 +200,7 @@ lib_figs(R, op_points, gears, soc_curves, time, voltage, Vs_kf, ...
 
 %% ---- EXPORT ----
 writetable(struct2table(R), 'output/gear_ratio_results.csv');
-fprintf('\nSaved: output/gear_ratio_results.csv + 4 figures in output/\n');
+fprintf('\nSaved: output/gear_ratio_results.csv + 2 figure windows (dashboard + operating-points map)\n');
 fprintf('DATA: tire mu DERIVED (not measured); aero from Ford wind tunnel + aero lead;\n');
 fprintf('chassis from tilt test; battery from HPPC. Remaining estimates: Crr, wheel k-factor.\n');
 
