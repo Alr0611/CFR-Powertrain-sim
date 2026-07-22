@@ -113,33 +113,31 @@ for si = starts'
     cnt = cnt+1; if cnt==ih, s = si; ee = e; break; end
 end
 seg = s:ee; tt = t(seg)-t(s);
-% One window: top row = the hardest launch (torque + speed), bottom = the
-% accel-vs-endurance load spectrum spanning the width.
-fF = figure('Name','Accel fatigue','Position',[40 40 1200 760]);
-tl = tiledlayout(fF,2,2,'TileSpacing','compact','Padding','compact');
+% One TABBED window: the hardest launch (torque + speed) and the accel-vs-
+% endurance load spectrum.
+fF = figure('Name','Accel fatigue','Position',[40 40 1000 560]);
+tg = uitabgroup(fF);
 
-nexttile(tl);
-plot(tt, abs(tc(seg)), 'LineWidth',1.3,'DisplayName','Requested (command)'); hold on;
-plot(tt, Tf(seg), 'LineWidth',1.3,'DisplayName','Delivered (feedback)');
-yline(150,'r--','150 Nm spec peak','HandleVisibility','off');
-ylabel('Motor torque (Nm)'); xlabel('Time (s)'); legend('Location','northeast'); grid on;
-title(sprintf('Hardest segment -- de-spiked peak %.0f Nm (raw %.0f)', max(Tf(seg)), max(Tf_raw(seg))));
+ax = axes(uitab(tg,'Title','Hardest launch torque'));
+plot(ax, tt, abs(tc(seg)), 'LineWidth',1.3,'DisplayName','Requested (command)'); hold(ax,'on');
+plot(ax, tt, Tf(seg), 'LineWidth',1.3,'DisplayName','Delivered (feedback)');
+yline(ax,150,'r--','150 Nm spec peak','HandleVisibility','off');
+ylabel(ax,'Motor torque (Nm)'); xlabel(ax,'Time (s)'); legend(ax,'Location','northeast'); grid(ax,'on');
+title(ax, sprintf('Hardest segment -- de-spiked peak %.0f Nm (raw %.0f)', max(Tf(seg)), max(Tf_raw(seg))));
 
-nexttile(tl);
-plot(tt, v(seg)*3.6, 'LineWidth',1.3); ylabel('Speed (kph)'); xlabel('Time (s)'); grid on;
-title('Vehicle speed');
+ax = axes(uitab(tg,'Title','Launch speed'));
+plot(ax, tt, v(seg)*3.6, 'LineWidth',1.3); ylabel(ax,'Speed (kph)'); xlabel(ax,'Time (s)'); grid(ax,'on');
+title(ax,'Vehicle speed over the hardest launch');
 
-nexttile(tl,[1 2]);
+ax = axes(uitab(tg,'Title','Load spectrum'));
 ctr = (edges(1:end-1)+edges(2:end))/2;
 % comp endurance spectrum (from fatigue_spectrum.m), 11 bins + 150-160 bin = 0
 end_spec = [41.5 17.1 15.6 13.1 6.6 2.8 3.1 0.2 0.1 0 0 0];   % 12 values = 12 accel bins
-bar(ctr, [end_spec; spec*100]', 'grouped');
-legend('Endurance (comp)','Accel (comp)','Location','northeast');
-xline(150,'r--','spec peak','HandleVisibility','off');
-xlabel('Motor torque bin (Nm)'); ylabel('% of loaded time');
-title('Driveline load: endurance stays low; accel fills 120-160 Nm -- the fatigue-critical case');
+bar(ax, ctr, [end_spec; spec*100]', 'grouped');
+legend(ax,'Endurance (comp)','Accel (comp)','Location','northeast');
+xline(ax,150,'r--','spec peak','HandleVisibility','off');
+xlabel(ax,'Motor torque bin (Nm)'); ylabel(ax,'% of loaded time');
+title(ax,'Driveline load: endurance stays low; accel fills 120-160 Nm -- the fatigue-critical case');
 
-title(tl,'Accel fatigue: hardest launch + torque load spectrum');
-nm = fullfile('output', matlab.lang.makeValidName(fF.Name));
-savefig(fF,[nm '.fig']); try, saveas(fF,[nm '.png']); catch, end
-fprintf('\nSaved: output/fatigue_spectrum_accel.csv + 1 figure window (AccelFatigue)\n');
+save_tabfig(fF, fullfile('output','AccelFatigue'));
+fprintf('\nSaved: output/fatigue_spectrum_accel.csv + 1 tabbed figure window (AccelFatigue)\n');

@@ -1,4 +1,4 @@
-%% DRIVETRAIN_EFFICIENCY  --  battery -> ground, the whole stack, and every lever
+%% DRIVETRAIN_EFFICIENCY  --  
 %
 % The goal of this script
 %   how efficient is the WHOLE drivetrain, and if we
@@ -171,43 +171,56 @@ fprintf('   Inside 0-5 deg the number barely moves -- getting OFF %.0f deg is th
 fprintf('   the exact angle is a diff-packaging call, not an efficiency one.\n\n');
 
 %% ============================================================================
-%% 4. FIGURES (saved to output/)  -- so you can actually SEE and compare
+%% 4. FIGURES (one TABBED window, saved to output/) -- exactly 3 tabs
 %% ============================================================================
-% One window, two panels: the two charts that earn their place -- the waterfall
-% (where the energy goes) and the halfshaft sweep (the one continuous design lever).
-% (The per-stage bar was just the printed table redrawn; the measured pack->shaft
-% map is a cross-validation artifact that lives in analysis/efficiency_crosscheck.m.)
+% Waterfall (where energy goes), halfshaft-angle sweep (the continuous lever), and
+% levers ranked by battery saved (what to fix first). Everything else stays a
+% printed table above; the measured pack->shaft map lives in
+% analysis/efficiency_crosscheck.m, not here.
 outdir = fullfile(here,'output'); if ~exist(outdir,'dir'), mkdir(outdir); end
-fW = figure('Name','Drivetrain efficiency','Position',[40 40 1320 520]);
-tl = tiledlayout(fW,1,2,'TileSpacing','compact','Padding','compact');
+fW = figure('Name','Drivetrain efficiency','Position',[40 40 1040 580]);
+tg = uitabgroup(fW);
 
-% -- panel 1: waterfall, energy remaining (%) after each stage --
-nexttile(tl);
+% -- Tab 1: waterfall, energy remaining (%) after each stage --
+ax = axes(uitab(tg,'Title','Waterfall'));
 lbl   = {'Battery','+ motor/inv','+ spur','+ bearings','+ chain','+ diff', sprintf('+ halfshaft@%d°',B.hs_angle)};
 efac  = [1, eff_shaft, B.spur, B.bearings, B.chain, B.diff, hs_term(B.hs_angle)];
 remain = cumprod(efac)*100;
-bar(remain,'FaceColor',[0.20 0.45 0.72],'EdgeColor','none'); hold on; grid on; ylim([0 112]);
-set(gca,'XTick',1:numel(lbl),'XTickLabel',lbl); xtickangle(20);
-ylabel('Energy remaining (%)');
-text(1:numel(remain), remain+2.2, compose('%.1f%%',remain), 'HorizontalAlignment','center','FontWeight','bold');
-title(sprintf('Battery \\rightarrow ground, as-driven: %.1f%% reaches the wheels', remain(end)));
+bar(ax, remain,'FaceColor',[0.20 0.45 0.72],'EdgeColor','none'); hold(ax,'on'); grid(ax,'on'); ylim(ax,[0 112]);
+set(ax,'XTick',1:numel(lbl),'XTickLabel',lbl); xtickangle(ax,20);
+ylabel(ax,'Energy remaining (%)');
+text(ax, 1:numel(remain), remain+2.2, compose('%.1f%%',remain), 'HorizontalAlignment','center','FontWeight','bold');
+title(ax, sprintf('Battery \\rightarrow ground, as-driven: %.1f%% reaches the wheels', remain(end)));
 
-% -- panel 2: halfshaft angle sweep, overall eff + battery saved vs angle --
-nexttile(tl);
+% -- Tab 2: halfshaft angle sweep, overall eff + battery saved vs angle --
+ax = axes(uitab(tg,'Title','Halfshaft angle sweep'));
 angs  = 0:0.5:12;
 ov_a  = arrayfun(@(bb) overall(setf(B,'hs_angle',bb)), angs)*100;
 sv_a  = (1 - eff0./(ov_a/100))*100;
-yyaxis left;  plot(angs, ov_a,'-','LineWidth',1.8); ylabel('Overall drivetrain efficiency (%)');
-yyaxis right; plot(angs, sv_a,'--','LineWidth',1.5); ylabel('Endurance battery saved (%)');
-xlabel('Halfshaft static angle (deg)'); grid on; xlim([0 12]);
-try, xregion(0,5,'FaceColor',[0.30 0.62 0.40],'FaceAlpha',0.12); catch, end   % 0-5 deg target band
-xline(B.hs_angle,'r:','LineWidth',1.3,'Label',sprintf('current %d°',B.hs_angle),'LabelOrientation','horizontal');
-title('Straighter halfshafts (shaded 0-5° = sweet spot)');
+yyaxis(ax,'left');  plot(ax, angs, ov_a,'-','LineWidth',1.8); ylabel(ax,'Overall drivetrain efficiency (%)');
+yyaxis(ax,'right'); plot(ax, angs, sv_a,'--','LineWidth',1.5); ylabel(ax,'Endurance battery saved (%)');
+xlabel(ax,'Halfshaft static angle (deg)'); grid(ax,'on'); xlim(ax,[0 12]);
+try, xregion(ax,0,5,'FaceColor',[0.30 0.62 0.40],'FaceAlpha',0.12); catch, end   % 0-5 deg target band
+xline(ax, B.hs_angle,'r:','LineWidth',1.3,'Label',sprintf('current %d°',B.hs_angle),'LabelOrientation','horizontal');
+title(ax,'Straighter halfshafts (shaded 0-5° = sweet spot)');
 
-title(tl, 'Drivetrain efficiency: where the energy goes + the halfshaft-angle lever');
-nm = fullfile(outdir, 'DTeff_Drivetrain_efficiency');
-savefig(fW,[nm '.fig']); try, saveas(fW,[nm '.png']); catch, end
-fprintf('Saved 1 figure window to output/ (waterfall + halfshaft angle sweep).\n\n');
+% -- Tab 3: levers ranked by battery saved (what to fix first) --
+ax = axes(uitab(tg,'Title','Levers ranked'));
+if isnan(E_batt_Wh)
+    xq = save_fr*100; xlab = 'Endurance battery saved (%)'; lbls = compose('%.1f%%', save_fr*100);
+else
+    xq = save_fr*E_batt_Wh; xlab = 'Endurance battery saved if stage hits its best (Wh)';
+    lbls = compose('%.0f Wh (%.1f%%)', xq, save_fr*100);
+end
+[xs, idx] = sort(xq);   % ascending -> biggest opportunity ends up at the top of barh
+barh(ax, xs, 'FaceColor',[0.30 0.62 0.40],'EdgeColor','none'); grid(ax,'on');
+set(ax,'YTick',1:numel(names),'YTickLabel',names(idx));
+xlabel(ax, xlab); xlim(ax,[0 max(xq)*1.25]);
+text(ax, xs+max(xq)*0.01, 1:numel(xs), lbls(idx), 'VerticalAlignment','middle');
+title(ax,'What to fix first: stages ranked by battery saved');
+
+save_tabfig(fW, fullfile(outdir,'DTeff_Drivetrain_efficiency'));
+fprintf('Saved 1 tabbed figure window to output/ (waterfall, halfshaft sweep, levers ranked).\n\n');
 
 fprintf('Sources: [1] CFR26_DT_Efficiency.pdf v4.0 (stage table + straight/corner time split).\n');
 fprintf('         Electrical end measured via freeman803 af/dteff method on July 11 telemetry.\n');

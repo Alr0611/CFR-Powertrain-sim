@@ -1,4 +1,4 @@
-%% CFR26 GEAR RATIO OPTIMIZATION  --  "so what sprocket should we actually run?"
+%% CFR26 GEAR RATIO OPTIMIZATION  --  
 %
 % Long story short
 %   We drove the car. We recorded everything. Now the question is: what if we'd
@@ -111,7 +111,6 @@ P_wheel(~fwd) = P_shaft_old(~fwd) ./ p.eta_drivetrain;
 
 gears = p.gears_to_test; ng = numel(gears);
 R = struct('ratio',{},'avg_eff',{},'hi_eff',{},'SOC',{},'SOC98',{}, ...
-           'accel',{},'accel_hi',{},'accel_lo',{},'top_kph',{}, ...
            'infeas_T',{},'infeas_rpm',{});
 op_points = struct('ratio',{},'rpm',{},'torque',{});
 rc98 = rc; rc98.SOC0 = 0.98; soc_curves = cell(1,ng);
@@ -158,43 +157,37 @@ for i = 1:ng
     infeas_T   = 100 * sum(active & abs(tq_new) > T_env) / max(sum(active),1);
     infeas_rpm = 100 * sum(active & abs(rpm_new) > p.redline) / max(sum(active),1);
 
-    % --- Accel (quick proxy) + grip band + top speed ---
-    tir_hi = p.tir; tir_hi.LMUX = p.tir.LMUX*1.15;
-    tir_lo = p.tir; tir_lo.LMUX = p.tir.LMUX*0.85;
-    accel    = accel_075m(g, p.tir, p);
-    accel_hi = accel_075m(g, tir_hi, p);
-    accel_lo = accel_075m(g, tir_lo, p);
-    top_kph  = top_speed(g, p) * 3.6;
-
+    % (Acceleration across ratios lives in the dedicated accel sim -- sweep_accel_sim
+    %  / accel_model / accel_sim.slx. We don't duplicate a weaker point-mass calc here.)
     R(i) = struct('ratio',g,'avg_eff',avg_eff,'hi_eff',hi_eff,'SOC',SOC_new(end)*100, ...
-        'SOC98',SOC_new98(end)*100,'accel',accel,'accel_hi',accel_hi,'accel_lo',accel_lo, ...
-        'top_kph',top_kph,'infeas_T',infeas_T,'infeas_rpm',infeas_rpm);
-    fprintf(' %5.2f:1 -> Eff=%5.1f%% | HiEff=%5.1f%% | SOC=%5.2f%% | 0-75m=%5.2fs | Top=%5.1f kph\n', ...
-        g, avg_eff, hi_eff, R(i).SOC, accel, top_kph);
+        'SOC98',SOC_new98(end)*100,'infeas_T',infeas_T,'infeas_rpm',infeas_rpm);
+    fprintf(' %5.2f:1 -> Eff=%5.1f%% | HiEff=%5.1f%% | SOC=%5.2f%%\n', ...
+        g, avg_eff, hi_eff, R(i).SOC);
 end
 
 %% ---- COMPARISON TABLE ----
 icur = find(abs([R.ratio]-p.gear_current) < 1e-6, 1);
 fprintf('\n================ GEAR RATIO COMPARISON (efficiency: comp | SOC: July 11) ================\n');
-fprintf(' Ratio  AvgEff  HiEff%%  FinalSOC   0-75m [nom (hi-lo mu)]  Top    | vs 4.61: dSOC dHiEff dAccel\n');
+fprintf(' Ratio  AvgEff  HiEff%%  FinalSOC   | vs 4.61:  dSOC   dHiEff\n');
 for i = 1:ng
     tag = '  '; if i==icur, tag='>>'; end
-    fprintf('%s %4.2f   %5.1f  %5.1f   %5.2f    %5.2f (%4.2f-%4.2f)  %5.1f  | %+5.2f %+6.1f %+5.2f\n', ...
-        tag, R(i).ratio, R(i).avg_eff, R(i).hi_eff, R(i).SOC, R(i).accel, R(i).accel_hi, R(i).accel_lo, ...
-        R(i).top_kph, R(i).SOC-R(icur).SOC, R(i).hi_eff-R(icur).hi_eff, R(i).accel-R(icur).accel);
+    fprintf('%s %4.2f   %5.1f  %5.1f   %6.2f    |  %+5.2f  %+6.1f\n', ...
+        tag, R(i).ratio, R(i).avg_eff, R(i).hi_eff, R(i).SOC, ...
+        R(i).SOC-R(icur).SOC, R(i).hi_eff-R(icur).hi_eff);
 end
-fprintf(' RANGE  %4.1f-%4.1f %4.1f-%4.1f %4.2f-%4.2f  %4.2f-%4.2f            %5.1f-%5.1f\n', ...
+fprintf(' RANGE  %4.1f-%4.1f %4.1f-%4.1f %4.2f-%4.2f\n', ...
     min([R.avg_eff]),max([R.avg_eff]), min([R.hi_eff]),max([R.hi_eff]), ...
-    min([R.SOC]),max([R.SOC]), min([R.accel_hi]),max([R.accel_lo]), min([R.top_kph]),max([R.top_kph]));
+    min([R.SOC]),max([R.SOC]));
 fprintf(' 98%%-start final SOC: %.1f%% (4.20) ... %.1f%% (4.61) ... %.1f%% (5.20)\n', ...
     R(abs([R.ratio]-4.20)<0.01).SOC98, R(icur).SOC98, R(abs([R.ratio]-5.20)<0.01).SOC98);
-fprintf(' Accel band = +/-15%% longitudinal-mu uncertainty (Calspan ran no long. sweep).\n');
+fprintf(' For ACCELERATION across ratios, run sweep_accel_sim (the dedicated accel sim);\n');
+fprintf('   this study does not duplicate a weaker point-mass accel calc.\n');
 fprintf(' Eff/AvgEff = motor+inverter (physics model x eta_inverter) at each ratio''s operating\n');
 fprintf('   points -- for RANKING ratios; a mild optimistic bound. MEASURED as-driven over\n');
 fprintf('   endurance is ~78%%. Full battery->ground stack + per-stage: drivetrain_efficiency.m\n');
 fprintf('=======================================================================================\n');
 
-%% ================= FIGURES (4) =================
+%% ================= FIGURES (tabbed dashboard + separate op-points window) =================
 lib_figs(R, op_points, gears, soc_curves, time, voltage, Vs_kf, ...
     SOC_openloop, SOC_kf, bms_soc, p);
 

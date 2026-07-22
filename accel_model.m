@@ -45,30 +45,36 @@ for g = [4.0 4.2 p.gear_current 5.2]
     fprintf(' %.2f:1 -> %.2f s\n', g, recovery_40_80(g, p));
 end
 
-%% ---- FIGURES (one window, 4 panels) ----
+%% ---- FIGURES (one TABBED window, 4 tabs) ----
 p0 = p; p0.I_rotor=0; p0.I_driveline=0; p0.I_wheel=0;
 t75_noI = nan(size(gears)); for i=1:numel(gears), [~,t75_noI(i),~]=accel_run(gears(i),p0); end
 
-fA = figure('Name','Accel study','Position',[40 40 1300 780]);
-tl = tiledlayout(fA,2,2,'TileSpacing','compact','Padding','compact');
+fA = figure('Name','Accel study','Position',[40 40 1000 560]);
+tg = uitabgroup(fA);
 
-nexttile(tl); plot(gears,t100,'LineWidth',1.6); hold on; xline(p.gear_current,'k--','current');
-    xlabel('Gear ratio'); ylabel('0-100 kph (s)'); grid on; title('0-100 kph');
-nexttile(tl); plot(gears,t75,'LineWidth',1.6); hold on; xline(p.gear_current,'k--','current');
-    yline(4.40,'g:','real 4.40s'); xlabel('Gear ratio'); ylabel('0-75 m (s)'); grid on; title('0-75 m (monotonic)');
-nexttile(tl); plot(gears,t75,'LineWidth',1.6,'DisplayName','With rotational inertia'); hold on;
-    plot(gears,t75_noI,'--','LineWidth',1.4,'DisplayName','Point-mass (no inertia)');
-    xline(p.gear_current,'k:','HandleVisibility','off');
-    xlabel('Gear ratio'); ylabel('0-75 m (s)'); grid on; legend('Location','north');
-    title('Rotational-inertia effect (~0.15s, flattens the high-ratio end)');
-nexttile(tl); tractive_effort_plot(gca, p, gears);
-title(tl,'Accel favors HIGH ratio (opposite of efficiency). Tractive-effort curves merge where power-limited.');
+ax = axes(uitab(tg,'Title','0-100 kph'));
+plot(ax,gears,t100,'LineWidth',1.6); hold(ax,'on'); xline(ax,p.gear_current,'k--','current');
+xlabel(ax,'Gear ratio'); ylabel(ax,'0-100 kph (s)'); grid(ax,'on'); title(ax,'0-100 kph');
+
+ax = axes(uitab(tg,'Title','0-75 m'));
+plot(ax,gears,t75,'LineWidth',1.6); hold(ax,'on'); xline(ax,p.gear_current,'k--','current');
+yline(ax,4.40,'g:','real 4.40s'); xlabel(ax,'Gear ratio'); ylabel(ax,'0-75 m (s)'); grid(ax,'on');
+title(ax,'0-75 m (monotonic -- accel favors HIGH ratio)');
+
+ax = axes(uitab(tg,'Title','Rotational inertia'));
+plot(ax,gears,t75,'LineWidth',1.6,'DisplayName','With rotational inertia'); hold(ax,'on');
+plot(ax,gears,t75_noI,'--','LineWidth',1.4,'DisplayName','Point-mass (no inertia)');
+xline(ax,p.gear_current,'k:','HandleVisibility','off');
+xlabel(ax,'Gear ratio'); ylabel(ax,'0-75 m (s)'); grid(ax,'on'); legend(ax,'Location','north');
+title(ax,'Rotational-inertia effect (~0.15s, flattens the high-ratio end)');
+
+ax = axes(uitab(tg,'Title','Tractive effort'));
+tractive_effort_plot(ax, p, gears);
 
 writetable(table(gears', t100', t75', vtrap', 'VariableNames',{'ratio','t0_100kph','t0_75m','trap_kph'}), ...
     'output/accel_results.csv');
-nm = fullfile('output', matlab.lang.makeValidName(fA.Name));
-savefig(fA,[nm '.fig']); try, saveas(fA,[nm '.png']); catch, end
-fprintf('\nSaved: output/accel_results.csv + 1 figure window (4 panels)\n');
+save_tabfig(fA, fullfile('output','AccelStudy'));
+fprintf('\nSaved: output/accel_results.csv + 1 tabbed figure window (4 tabs)\n');
 
 %% ================= LOCAL FUNCTIONS =================
 function [t100, t75, vtrap] = accel_run(G, p)

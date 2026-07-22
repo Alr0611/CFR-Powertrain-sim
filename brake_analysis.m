@@ -111,34 +111,38 @@ fprintf('  = %.1f%% of the %.2f kWh drawn -- the most a future regen system coul
 %% ---- FIGURE 1: hardest braking event detail ----
 [~, i_peak] = max(bp_f .* (v > 2));
 win = t > t(i_peak)-20 & t < t(i_peak)+20;
-% One window: left column = the hardest-braking event (40 s), right column = the
-% whole-run overview (temps + cumulative heat).
-fB = figure('Name','Brake analysis','Position',[40 40 1300 780]);
-tl = tiledlayout(fB,3,2,'TileSpacing','compact','Padding','compact');
+% One TABBED window: the hardest-braking event (40 s) + the whole-run overview.
+fB = figure('Name','Brake analysis','Position',[40 40 1000 560]);
+tg = uitabgroup(fB);
 
-nexttile(tl); plot(t(win), v(win)*3.6, 'LineWidth', 1.2); ylabel('Speed (kph)'); grid on;
-    title('Speed -- 40 s around the hardest braking event');
-nexttile(tl);
-    plot(t/60, W.VCFRONT_brakeTempFL, 'DisplayName','FL'); hold on;
-    plot(t/60, W.VCFRONT_brakeTempFR, 'DisplayName','FR');
-    plot(t/60, W.VCREAR_brakeTempRL, 'DisplayName','RL');
-    plot(t/60, W.VCREAR_brakeTempRR, 'DisplayName','RR');
-    ylabel('Brake temp (raw/degC)'); xlabel('Time (min)'); legend('show'); grid on;
-    title('Brake temperatures over the run (all braking energy -> heat)');
-nexttile(tl); plot(t(win), bp_f(win), 'r', 'LineWidth', 1.2); hold on;
-    plot(t(win), bp_r(win), 'b', 'LineWidth', 1.0);
-    ylabel('Brake pressure (raw)'); legend('Front','Rear'); grid on;
-    title('Front/rear pressure -- hydraulic balance under real braking');
-nexttile(tl);
-    ev_t = t(starts(1:length(ev_E)));
-    stairs(ev_t/60, cumsum(ev_E), 'LineWidth', 1.4); grid on;
-    xlabel('Time (min)'); ylabel('Cumulative friction heat (kWh)');
-    title('Cumulative kinetic energy shed in braking events');
-nexttile(tl); plot(t(win), P_elec(win)/1000, 'LineWidth', 1.2);
-    yline(0, 'k:'); ylabel('Pack power (kW)'); xlabel('Time (s)'); grid on;
-    title('No regen: pack power drops to ~0 in braking, never negative');
+ax = axes(uitab(tg,'Title','Speed (event)'));
+plot(ax, t(win), v(win)*3.6, 'LineWidth', 1.2); ylabel(ax,'Speed (kph)'); xlabel(ax,'Time (s)'); grid(ax,'on');
+title(ax,'Speed -- 40 s around the hardest braking event');
 
-title(tl,'Brake analysis: left = hardest event (40 s), right = whole run');
-nm = fullfile('output', matlab.lang.makeValidName(fB.Name));
-savefig(fB, [nm '.fig']); try, saveas(fB, [nm '.png']); catch, end
-fprintf('\nSaved: output/BrakeAnalysis.fig/.png (1 figure window)\n');
+ax = axes(uitab(tg,'Title','Brake pressure (event)'));
+plot(ax, t(win), bp_f(win), 'r', 'LineWidth', 1.2); hold(ax,'on');
+plot(ax, t(win), bp_r(win), 'b', 'LineWidth', 1.0);
+ylabel(ax,'Brake pressure (raw)'); xlabel(ax,'Time (s)'); legend(ax,'Front','Rear'); grid(ax,'on');
+title(ax,'Front/rear pressure -- hydraulic balance under real braking');
+
+ax = axes(uitab(tg,'Title','Pack power (event)'));
+plot(ax, t(win), P_elec(win)/1000, 'LineWidth', 1.2);
+yline(ax,0, 'k:'); ylabel(ax,'Pack power (kW)'); xlabel(ax,'Time (s)'); grid(ax,'on');
+title(ax,'No regen: pack power drops to ~0 in braking, never negative');
+
+ax = axes(uitab(tg,'Title','Brake temps (run)'));
+plot(ax, t/60, W.VCFRONT_brakeTempFL, 'DisplayName','FL'); hold(ax,'on');
+plot(ax, t/60, W.VCFRONT_brakeTempFR, 'DisplayName','FR');
+plot(ax, t/60, W.VCREAR_brakeTempRL, 'DisplayName','RL');
+plot(ax, t/60, W.VCREAR_brakeTempRR, 'DisplayName','RR');
+ylabel(ax,'Brake temp (raw/degC)'); xlabel(ax,'Time (min)'); legend(ax,'show'); grid(ax,'on');
+title(ax,'Brake temperatures over the run (all braking energy -> heat)');
+
+ax = axes(uitab(tg,'Title','Cumulative heat (run)'));
+ev_t = t(starts(1:length(ev_E)));
+stairs(ax, ev_t/60, cumsum(ev_E), 'LineWidth', 1.4); grid(ax,'on');
+xlabel(ax,'Time (min)'); ylabel(ax,'Cumulative friction heat (kWh)');
+title(ax,'Cumulative kinetic energy shed in braking events');
+
+save_tabfig(fB, fullfile('output','BrakeAnalysis'));
+fprintf('\nSaved: output/BrakeAnalysis.fig + per-tab PNGs (1 tabbed window)\n');
