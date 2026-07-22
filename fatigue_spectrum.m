@@ -12,6 +12,7 @@
 %     comp_june20_data.csv. ***
 
 clear; clc; close all;
+cd(fileparts(mfilename('fullpath')));   % run from the repo root so data/ and output/ paths resolve
 
 % Exact bin edges from 'Fatigue Load Cases.xlsx' (Load Case), + new 140-150 bin
 edges = [0.1 15.1 30.1 45.1 60.1 75 90 105 120 130 140 150];

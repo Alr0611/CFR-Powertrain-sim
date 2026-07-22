@@ -25,6 +25,7 @@
 % is accel_model.m -- go there if accel is what you care about.
 
 clear; clc; close all;
+cd(fileparts(mfilename('fullpath')));   % run from the repo root so data/ and output/ paths resolve
 addpath(fullfile(fileparts(mfilename('fullpath')), 'lib'));  % works wherever MATLAB is pointed
 p = params_cfr26();
 

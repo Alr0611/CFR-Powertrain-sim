@@ -11,6 +11,7 @@
 %          endurance_july11_with_odo_wide.csv (pack voltage, same 0.1s time base)
 
 clear; clc; close all;
+cd(fileparts(mfilename('fullpath')));   % run from the repo root so data/ and output/ paths resolve
 
 m_car = 294;           % kg, scales-with-driver (CG Calculator.xlsx)
 r_wheel = 0.2286;      % m

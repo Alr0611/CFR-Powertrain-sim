@@ -9,6 +9,7 @@
 % Validation: June 19 launch was 0-75m = 4.40 s raw at 4.61:1.
 
 clear; clc; close all;
+cd(fileparts(mfilename('fullpath')));   % run from the repo root so data/ and output/ paths resolve
 addpath(fullfile(fileparts(mfilename('fullpath')), 'lib'));  % works wherever MATLAB is pointed
 p = params_cfr26();
 

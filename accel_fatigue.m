@@ -10,6 +10,7 @@
 % but this is the WORST-CASE load case for gear-tooth fatigue.
 
 clear; clc; close all;
+cd(fileparts(mfilename('fullpath')));   % run from the repo root so data/ and output/ paths resolve
 
 edges = [0.1 15.1 30.1 45.1 60.1 75 90 105 120 130 140 150 160];  % +150-160 bin for overshoot
 r_wheel = 0.2286;
