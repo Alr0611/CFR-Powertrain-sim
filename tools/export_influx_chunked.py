@@ -170,12 +170,17 @@ def run_export(start_utc, stop_utc, fields, out, token,
     except ImportError:
         sys.exit("\ninfluxdb-client isn't installed. Run:  pip install influxdb-client tzdata\n")
 
-    # Filter with contains(set: [...]) -- ONE predicate over the list. A chained-OR
-    # filter over 200+ channels can blow past Influx's query-complexity limit; a set won't.
-    field_set = "[" + ", ".join(f'"{f}"' for f in fields) + "]"
+    # Filter with a pushed-down OR of field equalities: `r._field == "a" or ... == "b"`.
+    # Flux optimizes THIS at the storage layer, so it's fast. contains(value:.., set:[..])
+    # looks tidier but is NOT pushed down -- the box reads the whole bucket into memory and
+    # filters there, which times out even for ~25 channels. The catch: one giant OR over all
+    # ~400 channels is rejected as too complex (HTTP 400), so we split the channels into
+    # batches of BATCH and query each batch per window, merging the results.
+    BATCH = 40
+    batches = [fields[k:k+BATCH] for k in range(0, len(fields), BATCH)]
     flux_t = ('from(bucket: "{b}")\n'
               "  |> range(start: {s}, stop: {e})\n"
-              "  |> filter(fn: (r) => contains(value: r._field, set: {fs}))\n"
+              "  |> filter(fn: (r) => {filt})\n"
               "  |> aggregateWindow(every: {a}, fn: mean, createEmpty: false)\n"
               '  |> keep(columns: ["_time", "_field", "_value"])\n')
 
@@ -186,20 +191,25 @@ def run_export(start_utc, stop_utc, fields, out, token,
     if echo:
         print(f"  you asked for: {echo[0]} -> {echo[1]} (Montreal unless you wrote Z)")
     print(f"  querying UTC:  {start_utc} -> {stop_utc}")
-    print(f"  ({len(chunks)} windows of {chunk_minutes} min at {rate})\n")
+    nb = f", {len(batches)} channel-batches each" if len(batches) > 1 else ""
+    print(f"  ({len(chunks)} windows of {chunk_minutes} min at {rate}{nb})\n")
 
     data, failed = {}, []          # data: {timestamp -> {field: value}}, fits in RAM for a session
     for i, (ws, we) in enumerate(chunks, 1):
-        flux = flux_t.format(b=BUCKET, s=ws, e=we, fs=field_set, a=rate)
         print(f"[{i}/{len(chunks)}] {ws} -> {we} ...", end=" ", flush=True)
-        tables = query_with_retry(q, flux, client, len(fields))
-        if tables is None:
-            failed.append((ws, we)); continue
-        n = 0
-        for table in tables:
-            for rec in table.records:
-                data.setdefault(rec.get_time(), {})[rec.get_field()] = rec.get_value()
-                n += 1
+        n, window_failed = 0, False
+        for batch in batches:
+            filt = " or ".join(f'r._field == "{f}"' for f in batch)
+            flux = flux_t.format(b=BUCKET, s=ws, e=we, filt=filt, a=rate)
+            tables = query_with_retry(q, flux, client, len(fields))
+            if tables is None:
+                window_failed = True; continue
+            for table in tables:
+                for rec in table.records:
+                    data.setdefault(rec.get_time(), {})[rec.get_field()] = rec.get_value()
+                    n += 1
+        if window_failed:
+            failed.append((ws, we))
         print(f"{n} points")
     client.close()
 
