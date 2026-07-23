@@ -254,5 +254,56 @@ else
     fprintf('  [lib/ not on path -- run via START or addpath(genpath(pwd)); check skipped]\n');
 end
 
+fprintf('\n=== 18. DEGRADATION PARAMS + THE TWO TRAPS THEY INVITE ===\n');
+% Degradation is UNMEASURED. These checks make sure it stays that way until
+% somebody measures it, and that the two easy ways to fake a measurement stay
+% caught. See analysis/degradation_study.m and params_cfr26.m.
+if exist('params_cfr26','file')
+    pp = params_cfr26();
+    pass('degradation_motor exists', isfield(pp,'degradation_motor'));
+    pass('degradation_inverter exists', isfield(pp,'degradation_inverter'));
+    % (a) Defaults must stay 1.00. If one of these ever FAILs, the right question
+    % is "where is the measurement?" -- not "loosen the check".
+    fprintf('  motor %.3f, inverter %.3f (1.00 = as-new = unmeasured)\n', ...
+        pp.degradation_motor, pp.degradation_inverter);
+    pass('degradation_motor still 1.00 (unmeasured)', abs(pp.degradation_motor-1)<1e-9);
+    pass('degradation_inverter still 1.00 (unmeasured)', abs(pp.degradation_inverter-1)<1e-9);
+    % (b) Degradation must stay OUT of the validated efficiency chain. The whole
+    % point of keeping it separate is that a speculative number cannot move the
+    % gear-ratio result; this proves the separation holds.
+    if exist('emrax208_efficiency','file')
+        p_deg = pp; p_deg.degradation_motor = 0.5; p_deg.degradation_inverter = 0.5;
+        e_norm = emrax208_efficiency(3000, 60, pp);
+        e_deg  = emrax208_efficiency(3000, 60, p_deg);
+        fprintf('  eff with degradation forced to 0.5/0.5: %.4f vs normal %.4f\n', e_deg, e_norm);
+        pass('degradation does NOT leak into emrax208_efficiency', abs(e_deg-e_norm)<1e-12);
+    end
+    % (c) THE Ke TRAP. Ke derived from our own validated constants: 140 Nm at
+    % 3000 rpm = 44 kW at 169 Arms, so V_LL = P/(sqrt(3)*I) and Ke = V_LL/rpm.
+    % A remembered "0.60 V/RPM" is ~12x this and implies 3600 V at redline
+    % against a 370 V bus -- impossible. Using it would invent ~90% demag.
+    P_ref = pp.T_flat_cap*3000*2*pi/60;  I_ref = pp.T_flat_cap/pp.Nm_per_Arms;
+    Ke = P_ref/(sqrt(3)*I_ref)/3000;
+    Vbus = pp.N_series*4.2;
+    fprintf('  derived Ke = %.4f V/rpm -> %.0f V_LL at redline vs %.0f V bus\n', ...
+        Ke, Ke*pp.redline, Vbus);
+    pass('derived Ke in the physically sane 0.03-0.08 V/rpm band', Ke>0.03 && Ke<0.08);
+    pass('Ke*redline does not exceed 2x bus (no impossible back-EMF)', Ke*pp.redline < 2*Vbus);
+    fprintf('  a 0.60 V/rpm baseline would give %.0f V at redline (%.1fx too big)\n', ...
+        0.60*pp.redline, 0.60/Ke);
+    pass('0.60 V/rpm is correctly rejected as impossible', 0.60*pp.redline > 2*Vbus);
+    % (d) THE NO-LOAD BASELINE TRAP. A pack-side shunt sees core loss AFTER the
+    % inverter, PLUS accessories. Comparing a measured pack-side amp reading
+    % against the motor-only curve manufactures degradation that is not there.
+    P_core3k = pp.core_loss_a*3000 + pp.core_loss_b*3000^2;
+    A_motor_only = P_core3k/Vbus;
+    A_packside   = (P_core3k/pp.eta_inverter + 116)/Vbus;
+    fprintf('  no-load at 3000 rpm: motor-only %.2f A vs true pack-side %.2f A (+%.0f%%)\n', ...
+        A_motor_only, A_packside, 100*(A_packside/A_motor_only-1));
+    pass('pack-side no-load baseline exceeds motor-only (trap is real)', A_packside > A_motor_only*1.15);
+else
+    fprintf('  [params_cfr26 not on path -- section skipped]\n');
+end
+
 fprintf('\n=== SUMMARY ===\n');
 fprintf('If any line above reads **FAIL**, that specific number needs a second look.\n');

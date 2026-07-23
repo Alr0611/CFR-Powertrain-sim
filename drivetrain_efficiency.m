@@ -105,6 +105,38 @@ fprintf(' band much of an endurance lap) -- a gearing/driving lever (gear_ratio_
 fprintf(' NOT a hardware loss. The hardware is %.1f%% regardless of how it is driven.\n\n', pct(eff_hw));
 
 %% ============================================================================
+%% 1b. SPLITTING THE ELECTRICAL END: battery side vs inverter side
+%% ============================================================================
+% Everything above treats "motor + inverter" as ONE number, because that is all
+% pack->shaft telemetry can see. To act on it we need to know which box is
+% losing the energy -- a tired inverter and a tired pack call for completely
+% different fixes.
+%
+% GOLD STANDARD: a dyno run. Aboud is arranging sponsor access. When that data
+% lands it drops into DYNO below and this section switches over automatically.
+%
+% INTERIM, NO DYNO NEEDED: the inverter's own dc-bus channels measure the power
+% entering the inverter. Then
+%       pack power  - dc-bus power = everything UPSTREAM of the inverter
+%                                    (accessories, contactors, cabling, pack IR)
+%       dc-bus power - shaft power = the inverter + motor themselves
+% which separates the battery side from the inverter side with no dyno at all.
+%
+% This is wired up and runs automatically the moment the channels are exportable.
+% It is GATED on a physical plausibility check, because a mis-scaled current
+% channel produces a beautifully plausible-looking split that is entirely wrong.
+[split, split_msg] = split_battery_inverter(csv, eff_shaft);
+fprintf('=== BATTERY SIDE vs INVERTER SIDE (splitting the electrical end) ===\n');
+fprintf('%s\n', split_msg);
+if split.valid
+    fprintf('   upstream of inverter (accessories + pack IR + cabling) : %5.1f%% of pack power\n', 100*split.upstream_frac);
+    fprintf('   inverter + motor                                       : %5.1f%%\n', 100*split.conv_frac);
+    fprintf('   -> battery-side efficiency  %.3f\n', split.eta_battery);
+    fprintf('   -> inverter+motor efficiency %.3f\n', split.eta_converter);
+end
+fprintf('\n');
+
+%% ============================================================================
 %% 2. WHERE THE LOSSES ARE + HEADROOM PER STAGE (every stage, same treatment)
 %% ============================================================================
 % Each stage gets the same treatment: how much it throws away now, a realistic
@@ -229,6 +261,124 @@ fprintf('         CV-joint loss coefficient cross-checked against the memo (see 
 %% ============================== local functions ==============================
 function s = setf(s, field, val)
     s.(field) = val;   % copy a struct with one field changed
+end
+
+function [out, msg] = split_battery_inverter(csv, eff_shaft)
+%SPLIT_BATTERY_INVERTER  Separate battery-side losses from inverter-side losses.
+%
+%   Structured so the eventual DYNO data drops straight in. Three sources, in
+%   descending order of trust:
+%
+%     1. DYNO      -- measured shaft power on a brake, against measured dc-bus
+%                     and pack power. The real answer. Fill in DYNO below.
+%     2. DC-BUS    -- PM100DX_dcBusVoltage/Current from track telemetry.
+%                     pack power - dc-bus power = everything upstream.
+%     3. NEITHER   -- report that the split is unavailable. Do NOT guess a
+%                     number: an invented split is worse than no split, because
+%                     it points the team at the wrong box to fix.
+%
+%   The DC-BUS path is GATED. Pack->inverter is a few metres of cable, a fuse
+%   and two contactors: single-digit milliohms. If the channels imply a series
+%   resistance far outside that, the channel is mis-scaled, not the car being
+%   lossy, and we refuse the number instead of publishing it.
+
+    out = struct('valid', false, 'source', 'none', 'upstream_frac', NaN, ...
+                 'conv_frac', NaN, 'eta_battery', NaN, 'eta_converter', NaN, ...
+                 'R_implied_mohm', NaN);
+
+    % ---------- SOURCE 1: DYNO (fill this in when the sponsor run happens) ----
+    % Set DYNO.have = true and fill the three power vectors (W). Everything
+    % downstream already handles it -- no other edits needed anywhere.
+    DYNO.have      = false;
+    DYNO.P_pack    = [];   % W, measured at the pack terminals
+    DYNO.P_dcbus   = [];   % W, measured at the inverter dc input
+    DYNO.P_shaft   = [];   % W, measured on the brake (torque x speed)
+    if DYNO.have
+        Ppk = sum(DYNO.P_pack); Pdc = sum(DYNO.P_dcbus); Psh = sum(DYNO.P_shaft);
+        out.valid = true; out.source = 'DYNO (measured shaft power)';
+        out.upstream_frac = (Ppk - Pdc)/Ppk;
+        out.conv_frac     = (Pdc - Psh)/Ppk;
+        out.eta_battery   = Pdc/Ppk;
+        out.eta_converter = Psh/Pdc;
+        msg = sprintf('  source: %s -- this supersedes the telemetry estimate.', out.source);
+        return;
+    end
+
+    % ---------- SOURCE 2: dc-bus telemetry -----------------------------------
+    if ~isfile(csv)
+        msg = '  [no telemetry file -- split unavailable]';
+        return;
+    end
+    W = readtable(csv);  V = W.Properties.VariableNames;
+    has_i = ismember('PM100DX_dcBusCurrent', V);
+    has_v = ismember('PM100DX_dcBusVoltage', V);
+    if ~has_i
+        msg = ['  [PM100DX_dcBusCurrent not in this export -- split unavailable]' newline ...
+               '   HOOK: re-export with the "Motor & inverter" channel group' newline ...
+               '   (dcBusVoltage + dcBusCurrent) and this runs automatically.'];
+        return;
+    end
+
+    Vpack = W.BMSB_packVoltage;  Ipack = W.BMSB_packCurrent;
+    Idc   = W.PM100DX_dcBusCurrent;
+    if has_v, Vdc = W.PM100DX_dcBusVoltage; else, Vdc = Vpack; end   % bus V ~ pack V
+    rpm = abs(W.PM100DX_motorSpeed);  tq = abs(W.PM100DX_torqueFeedback);
+
+    P_pack = abs(Vpack .* Ipack);
+    P_dc   = abs(Vdc   .* Idc);
+    mot = rpm>500 & tq>5 & P_pack>500;            % loaded, motoring points only
+    if nnz(mot) < 100
+        msg = '  [too few motoring points to split]';
+        return;
+    end
+
+    Epack = sum(P_pack(mot));  Edc = sum(P_dc(mot));
+    upstream = Epack - Edc;
+
+    % ---- THE GATE: is the implied series resistance physically possible? -----
+    % Upstream loss must be I^2*R through cable + fuse + contactors.
+    R_implied = upstream / sum(Ipack(mot).^2);
+    out.R_implied_mohm = R_implied*1000;
+    R_MAX_OHM = 0.050;    % 50 mOhm -- already generous for HV cable+fuse+contactors
+    if ~has_v
+        vnote = sprintf('%s   note: no dcBusVoltage channel, so pack voltage was used for the\n         bus (fair -- they differ by an IR drop of millivolts).\n', '');
+    else
+        vnote = '';
+    end
+
+    if upstream <= 0
+        msg = sprintf(['  [dc-bus power >= pack power -- impossible; channel sign/scale is wrong]\n' ...
+                       '   dc-bus reads %.0f Wh vs pack %.0f Wh over the motoring points.'], ...
+                       Edc/3600, Epack/3600);
+        return;
+    end
+    if R_implied > R_MAX_OHM
+        msg = sprintf([ ...
+            '  REJECTED -- the dc-bus channel fails a physical sanity check.\n' ...
+            '   Implied pack->inverter series resistance: %.0f mOhm.\n' ...
+            '   Real HV cable + fuse + contactors is roughly 5-20 mOhm, so this is ~%.0fx\n' ...
+            '   too high. Taken at face value the split would book %.0f%% of pack power\n' ...
+            '   (%.0f Wh over this run, %.0f kW at peak current) as heat in the HV\n' ...
+            '   cabling -- the cable would not survive the first lap.\n' ...
+            '   DIAGNOSIS: PM100DX_dcBusCurrent reads about %.0f%% of pack current at ALL\n' ...
+            '   load levels. A constant RATIO is a scale-factor error; a real accessory\n' ...
+            '   draw would be a constant OFFSET of a few hundred watts. Check the CAN\n' ...
+            '   scaling for this channel in the DBC before anyone uses it.\n' ...
+            '   The split is therefore NOT reported -- a wrong split is worse than none.\n%s'], ...
+            out.R_implied_mohm, out.R_implied_mohm/12.5, 100*upstream/Epack, ...
+            upstream*median(diff(W.t_s))/3600, R_implied*max(abs(Ipack))^2/1000, ...
+            100*sum(abs(Idc(mot)))/sum(abs(Ipack(mot))), vnote);
+        return;
+    end
+
+    out.valid = true;  out.source = 'dc-bus telemetry (interim, no dyno)';
+    out.upstream_frac = upstream/Epack;
+    P_shaft = sum(tq(mot).*rpm(mot)*2*pi/60);
+    out.conv_frac     = (Edc - P_shaft)/Epack;
+    out.eta_battery   = Edc/Epack;
+    out.eta_converter = P_shaft/Edc;
+    msg = sprintf(['  source: %s\n   implied series resistance %.1f mOhm (plausible, gate passed)\n%s'], ...
+        out.source, out.R_implied_mohm, vnote);
 end
 
 function s = battxt(frac, Wh)
