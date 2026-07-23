@@ -71,6 +71,12 @@ add_block('simulink/Logic and Bit Operations/Compare To Constant', [mdl '/reach7
 add_block('simulink/Sinks/Stop Simulation', [mdl '/Stop'], 'Position',[660 185 690 215]);
 add_block('simulink/Sinks/To Workspace', [mdl '/w_out'], 'VariableName','w_log','SaveFormat','Timeseries','Position',[560 110 620 140]);
 add_block('simulink/Sinks/To Workspace', [mdl '/x_out'], 'VariableName','x_log','SaveFormat','Timeseries','Position',[560 245 620 275]);
+% Scope so you can WATCH distance + speed build during a Run (double-click it to open).
+add_block('simulink/Sinks/Scope', [mdl '/Scope'], 'NumInputPorts','2', 'Position',[680 300 720 350]);
+% A "button": an empty (port-less) subsystem whose double-click runs the whole sweep,
+% so nobody has to type anything. Green so it stands out.
+add_block('built-in/Subsystem', [mdl '/RUN SWEEP (double-click)'], 'Position',[150 300 340 350]);
+set_param([mdl '/RUN SWEEP (double-click)'], 'OpenFcn','sweep_accel_sim', 'BackgroundColor','green');
 
 % ---- Wiring ----
 add_line(mdl,'Gval/1','dyn/2','autorouting','on');
@@ -81,6 +87,8 @@ add_line(mdl,'dyn/2','dist/1','autorouting','on');
 add_line(mdl,'dist/1','reach75/1','autorouting','on');
 add_line(mdl,'dist/1','x_out/1','autorouting','on');
 add_line(mdl,'reach75/1','Stop/1','autorouting','on');
+add_line(mdl,'dist/1','Scope/1','autorouting','on');   % distance -> scope
+add_line(mdl,'dyn/2','Scope/2','autorouting','on');    % speed -> scope
 
 % ---- Solver / config ----
 set_param(mdl,'SolverType','Variable-step','Solver','ode45','StopTime','15','MaxStep','0.005');
@@ -92,7 +100,41 @@ set_param(mdl,'SolverType','Variable-step','Solver','ode45','StopTime','15','Max
 set_param(mdl,'InitFcn','if ~exist(''G_ratio'',''var''), G_ratio = 4.61; end');
 assignin('base','G_ratio',4.61);
 
+% When the model opens, put the repo + lib on the MATLAB path so a teammate can just
+% open accel_sim.slx and use it (the RUN SWEEP button, params, etc.) WITHOUT running
+% START.m first. Uses the .slx's own folder, so it works wherever the repo lives.
+set_param(mdl,'PostLoadFcn', ...
+    'p=fileparts(get_param(''accel_sim'',''FileName'')); if ~isempty(p), addpath(p, fullfile(p,''lib'')); end');
+
+% Print a RESULT when you hit Run, so a bare Run isn't silent. The Stop block ends
+% the sim exactly at 75 m, so the final SimulationTime IS the 0-75 m time -- read it
+% straight off, no dependence on how the run logs to the workspace. The Scope shows
+% the distance/speed curves. Stays quiet during sweep_accel_sim (sets SWEEP_MODE).
+stopfcn = [ ...
+ 'if ~exist(''SWEEP_MODE'',''var''),' ...
+ '  fprintf(''\naccel_sim: 0-75 m at %.2f:1 = %.2f s   (double-click the Scope for the curves)\n'',' ...
+ '          G_ratio, get_param(''accel_sim'',''SimulationTime''));' ...
+ 'end'];
+set_param(mdl,'StopFcn',stopfcn);
+
+% Save the Scope in an open state so it pops up on Run without the user hunting for it.
+try, open_system([mdl '/Scope']); catch, end
+
+% On-canvas instructions so the model explains itself.
+try
+    a = Simulink.Annotation(mdl, sprintf([ ...
+        'HOW TO USE\n' ...
+        '  - Hit  Run  (top toolbar) for ONE ratio  (G_ratio, default 4.61).\n' ...
+        '    -> prints the 0-75 m time + pops a distance/rpm plot.\n' ...
+        '  - Double-click the green  RUN SWEEP  block for ALL ratios\n' ...
+        '    -> table + a 0-75 m vs gear-ratio plot.  No typing needed.']));
+    a.position = [150 380 620 470];
+    a.FontSize = 11;
+catch
+end
+
 save_system(mdl, fullfile(pwd, [mdl '.slx']));
-fprintf('Built %s.slx. Single case:  G_ratio=4.61; out=sim(''%s'');\n', mdl, mdl);
-fprintf('Sweep all ratios:  sweep_accel_sim\n');
+fprintf('Built %s.slx.\n', mdl);
+fprintf('  Open it and hit Run for one ratio, or double-click RUN SWEEP for all ratios.\n');
+fprintf('  Command line:  sweep_accel_sim   (same sweep + plot)\n');
 end
