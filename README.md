@@ -3,6 +3,10 @@
 MATLAB + Python model for CFR27: final-drive gear ratio,
 drivetrain efficiency, acceleration, battery/SOC, and driveline loads.
 
+> **New here / just want to run something?** See **[HOW_TO_USE.md](HOW_TO_USE.md)** —
+> a task-first cheat sheet ("I want to know X → run this → look here"). This page
+> is the full install + background.
+
 ---
 
 ## Install on Windows
