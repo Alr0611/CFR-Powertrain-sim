@@ -93,18 +93,26 @@ add_line(mdl,'dyn/2','Scope/2','autorouting','on');    % speed -> scope
 % ---- Solver / config ----
 set_param(mdl,'SolverType','Variable-step','Solver','ode45','StopTime','15','MaxStep','0.005');
 % Make the model runnable standalone. The Gval Constant block reads 'G_ratio' from
-% the base workspace; if someone just opens accel_sim.slx and hits Run without
-% setting it, the block errors ("Invalid setting ... for parameter 'Value'"). This
-% InitFcn defaults it to the current 4.61 only when it isn't already defined, so a
-% bare Run works AND sweep_accel_sim (which sets G_ratio each iteration) still wins.
-set_param(mdl,'InitFcn','if ~exist(''G_ratio'',''var''), G_ratio = 4.61; end');
-assignin('base','G_ratio',4.61);
+% the base workspace; if it isn't defined (fresh session, or someone cleared the
+% workspace), the block errors ("Invalid setting ... for parameter 'Value'") and the
+% model looks wedged. Two callbacks default it to the current 4.61 whenever it's
+% missing, at BOTH moments it can be needed:
+%   PostLoadFcn -- the instant the .slx opens, so even double-clicking the Gval block
+%                  to inspect it (before any Run) shows 4.61 instead of an error.
+%   InitFcn     -- again at sim start / Update Diagram, in case the base var was
+%                  cleared after the model was already open.
+% Both use "only if missing", so sweep_accel_sim (which sets G_ratio each iteration)
+% still wins, and the model workspace is deliberately NOT used for the default --
+% a model-workspace G_ratio would SHADOW the sweep's base-workspace value and make
+% every swept ratio silently run as the default.
+set_param(mdl,'InitFcn','if ~exist(''G_ratio'',''var''), assignin(''base'',''G_ratio'',4.61); end');
 
 % When the model opens, put the repo + lib on the MATLAB path so a teammate can just
 % open accel_sim.slx and use it (the RUN SWEEP button, params, etc.) WITHOUT running
 % START.m first. Uses the .slx's own folder, so it works wherever the repo lives.
 set_param(mdl,'PostLoadFcn', ...
-    'p=fileparts(get_param(''accel_sim'',''FileName'')); if ~isempty(p), addpath(p, fullfile(p,''lib'')); end');
+    ['p=fileparts(get_param(''accel_sim'',''FileName'')); if ~isempty(p), addpath(p, fullfile(p,''lib'')); end; ' ...
+     'if ~exist(''G_ratio'',''var''), assignin(''base'',''G_ratio'',4.61); end']);
 
 % Print a RESULT when you hit Run, so a bare Run isn't silent. The Stop block ends
 % the sim exactly at 75 m, so the final SimulationTime IS the 0-75 m time -- read it
@@ -132,6 +140,11 @@ try
     a.FontSize = 11;
 catch
 end
+
+% Leave a default in the base workspace for the just-built (already-loaded) model,
+% since PostLoadFcn only fires on a fresh open, not on new_system. "Only if missing"
+% so a rebuild mid-workflow never clobbers a value already in play.
+if ~evalin('base','exist(''G_ratio'',''var'')'), assignin('base','G_ratio',4.61); end
 
 save_system(mdl, fullfile(pwd, [mdl '.slx']));
 fprintf('Built %s.slx.\n', mdl);

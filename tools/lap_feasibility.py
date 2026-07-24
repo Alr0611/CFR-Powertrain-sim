@@ -237,9 +237,8 @@ def report():
     elif energy_ok and thin:
         print(f"\n  => it fits, but on {margin:.0f}% margin at the pace actually driven.")
         print("     That is not real margin. It has to absorb, all at once: a hotter day, a")
-        print("     faster course, a cell pack that has aged, and the 4-17% degradation band")
-        print("     from degradation_study.m -- any ONE of which eats it. Treat 22 laps as")
-        print("     achievable but NOT comfortable, and stop calling it a pass.")
+        print("     faster course, and a cell pack that has aged -- any ONE of which eats it.")
+        print("     Treat 22 laps as achievable but NOT comfortable, and stop calling it a pass.")
     elif energy_ok:
         print(f"\n  => both fit, with {margin:.0f}% margin. Energy is not the binding constraint.")
     else:
@@ -247,8 +246,9 @@ def report():
     print("\n  CAVEATS: nominal pack energy uses the datasheet 4.4 Ah/cell; the README notes")
     print("  the real cells may hold somewhat more, so this is the conservative read. These")
     print("  laps are the hardest-driven block of July 11, so Wh/km here runs above the")
-    print(f"  {224:.0f} Wh/km whole-session average used in degradation_study.m -- that is the")
-    print("  intended difference, not a contradiction: this axis asks about RACE pace.")
+    print("  ~224 Wh/km whole-session average (the session includes cool-down and paddock")
+    print("  laps) -- that is the intended difference, not a contradiction: this axis asks")
+    print("  about RACE pace, not session-average pace.")
 
     # ---------------- AXIS 2: THERMAL -------------------------------------
     print("\n" + "-" * 100)
@@ -294,10 +294,8 @@ def report():
     print(f"  full range             : {whkm.min():.0f} .. {whkm.max():.0f} Wh/km "
           f"({whkm.max()/whkm.min():.2f}x)")
     print(f"\n  Closing that {gap:.1f}% gap by consistency alone would save "
-          f"{(mean_-best['Wh_km'])*ENDURANCE_KM:.0f} Wh over 22 km")
-    print(f"  -- {'more' if (mean_-best['Wh_km'])*ENDURANCE_KM > 200 else 'comparable to'} "
-          "than the entire plausible degradation band (see degradation_study.m).")
-    print("  Driver consistency is a bigger lever here than hardware.")
+          f"{(mean_-best['Wh_km'])*ENDURANCE_KM:.0f} Wh over 22 km.")
+    print("  Driver consistency is a real, free lever here -- no hardware change buys it.")
 
     field = field_lap_spread()
     if field:
@@ -335,8 +333,8 @@ def report():
         print(f"  IF the driver holds the best lap ({best['Wh_km']:.0f} Wh/km) that becomes "
               f"{e_best:.0f} Wh and {100-100*e_best/PACK_WH:.0f}% margin,")
         print(f"  which is a real buffer. The {gap:.1f}% best-vs-mean gap is worth "
-              f"{(mean_-best['Wh_km'])*ENDURANCE_KM:.0f} Wh -- more than")
-        print("  the entire degradation band, and free. Driver consistency IS the margin.")
+              f"{(mean_-best['Wh_km'])*ENDURANCE_KM:.0f} Wh,")
+        print("  and it is free. Driver consistency IS the margin.")
     elif energy_ok:
         print(f"  YES on energy -- best and average both fit, with {margin:.0f}% margin.")
     else:

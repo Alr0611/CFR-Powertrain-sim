@@ -166,9 +166,20 @@ for i = 1:ng
 end
 
 %% ---- COMPARISON TABLE ----
-icur = find(abs([R.ratio]-p.gear_current) < 1e-6, 1);
+% Reference for the delta columns: the current car (p.gear_current) when it's in the
+% tested set, otherwise the NEAREST tested ratio -- clearly labelled as a stand-in.
+% (find() returned empty for a single/custom ratio set that omits 4.61, which then
+% crashed R(icur) with "Not enough input arguments"; min() always returns a valid one.)
+[~, icur]  = min(abs([R.ratio] - p.gear_current));
+ref        = R(icur).ratio;
+ref_exact  = abs(ref - p.gear_current) < 1e-6;
+if ref_exact
+    ref_lbl = sprintf('%.2f', ref);
+else
+    ref_lbl = sprintf('%.2f*', ref);   % * = nearest stand-in, not the actual current ratio
+end
 fprintf('\n================ GEAR RATIO COMPARISON (efficiency: comp | SOC: July 11) ================\n');
-fprintf(' Ratio  AvgEff  HiEff%%  FinalSOC   | vs 4.61:  dSOC   dHiEff\n');
+fprintf(' Ratio  AvgEff  HiEff%%  FinalSOC   | vs %s:  dSOC   dHiEff\n', ref_lbl);
 for i = 1:ng
     tag = '  '; if i==icur, tag='>>'; end
     fprintf('%s %4.2f   %5.1f  %5.1f   %6.2f    |  %+5.2f  %+6.1f\n', ...
@@ -178,8 +189,20 @@ end
 fprintf(' RANGE  %4.1f-%4.1f %4.1f-%4.1f %4.2f-%4.2f\n', ...
     min([R.avg_eff]),max([R.avg_eff]), min([R.hi_eff]),max([R.hi_eff]), ...
     min([R.SOC]),max([R.SOC]));
-fprintf(' 98%%-start final SOC: %.1f%% (4.20) ... %.1f%% (4.61) ... %.1f%% (5.20)\n', ...
-    R(abs([R.ratio]-4.20)<0.01).SOC98, R(icur).SOC98, R(abs([R.ratio]-5.20)<0.01).SOC98);
+if ~ref_exact
+    fprintf(' (* %.2f is the nearest tested ratio to the current %.2f, which is not in this set.)\n', ...
+        ref, p.gear_current);
+end
+% 98%%-start final SOC: report the spread across whatever ratios were actually tested,
+% plus the reference -- never hardcode 4.20/4.61/5.20, they may not be in a custom set.
+[s98_hi, ih] = max([R.SOC98]);   % highest final SOC = lowest ratio (least energy)
+[s98_lo, il] = min([R.SOC98]);   % lowest  final SOC = highest ratio
+if ng == 1
+    fprintf(' 98%%-start final SOC: %.1f%% (%.2f)\n', R(1).SOC98, R(1).ratio);
+else
+    fprintf(' 98%%-start final SOC: %.1f%% (%.2f) ... %.1f%% (%.2f) | reference %s: %.1f%%\n', ...
+        s98_hi, R(ih).ratio, s98_lo, R(il).ratio, ref_lbl, R(icur).SOC98);
+end
 fprintf(' For ACCELERATION across ratios, run sweep_accel_sim (the dedicated accel sim);\n');
 fprintf('   this study does not duplicate a weaker point-mass accel calc.\n');
 fprintf(' Eff/AvgEff = motor+inverter (physics model x eta_inverter) at each ratio''s operating\n');

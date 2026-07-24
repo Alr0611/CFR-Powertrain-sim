@@ -251,8 +251,38 @@ xlabel(ax, xlab); xlim(ax,[0 max(xq)*1.25]);
 text(ax, xs+max(xq)*0.01, 1:numel(xs), lbls(idx), 'VerticalAlignment','middle');
 title(ax,'What to fix first: stages ranked by battery saved');
 
+% -- Tab 4: efficiency by stage (standalone %) -- the weakest link at a glance --
+% One bar per stage = that stage's OWN current efficiency. No cumulative energy,
+% no battery Wh; just how efficient each thing is, and what they multiply to. The
+% six bars multiply to eff0 exactly (overall = eff_shaft x spur x brg x chain x
+% diff x halfshaft), shown as the separate total bar at the bottom.
+ax = axes(uitab(tg,'Title','Efficiency by stage'));
+st_name = {'motor + inverter','spur gearbox','bearing stack','chain', ...
+           'diff (LSD)', sprintf('halfshaft@%d deg',B.hs_angle)};
+st_eff  = [eff_shaft, B.spur, B.bearings, B.chain, B.diff, hs_term(B.hs_angle)] * 100;
+[st_sorted, o] = sort(st_eff, 'ascend');           % weakest first -> shortest bar on top row
+names_sorted   = st_name(o);
+cols = repmat([0.62 0.66 0.70], numel(st_eff), 1); % muted grey for context
+cols(1,:) = [0.91 0.41 0.20];                       % accent: the weakest stage
+y = 1:numel(st_sorted);
+hb = barh(ax, y, st_sorted, 0.62, 'FaceColor','flat','EdgeColor','none'); hold(ax,'on');
+hb.CData = cols;
+ov  = eff0*100;                                     % overall = product of all six stages
+yov = numel(st_sorted) + 1.5;
+barh(ax, yov, ov, 0.62, 'FaceColor',[0.20 0.28 0.40],'EdgeColor','none');
+grid(ax,'on'); xlim(ax,[0 108]); xlabel(ax,'Stage efficiency (%)');
+set(ax,'YTick',[y, yov], 'YTickLabel',[names_sorted, {'OVERALL (all 6 stages)'}]);
+ylim(ax,[0 yov+0.9]);
+text(ax, st_sorted+1, y, compose('%.1f%%', st_sorted), ...
+    'VerticalAlignment','middle','FontWeight','bold');
+text(ax, ov+1, yov, compose('%.1f%%', ov), 'VerticalAlignment','middle', ...
+    'FontWeight','bold','Color',[0.20 0.28 0.40]);
+xline(ax, ov, ':', 'Color',[0.20 0.28 0.40], 'LineWidth',1.2);  % read each stage vs the result
+title(ax, sprintf(['Efficiency by stage: weakest link is %s (%.1f%%); ' ...
+    'all six multiply to %.1f%% overall'], strtrim(names_sorted{1}), st_sorted(1), ov));
+
 save_tabfig(fW, fullfile(outdir,'DTeff_Drivetrain_efficiency'));
-fprintf('Saved 1 tabbed figure window to output/ (waterfall, halfshaft sweep, levers ranked).\n\n');
+fprintf('Saved 1 tabbed figure window to output/ (waterfall, halfshaft sweep, levers ranked, efficiency by stage).\n\n');
 
 fprintf('Sources: [1] CFR26_DT_Efficiency.pdf v4.0 (stage table + straight/corner time split).\n');
 fprintf('         Electrical end measured via freeman803 af/dteff method on July 11 telemetry.\n');

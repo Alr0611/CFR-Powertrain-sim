@@ -97,40 +97,6 @@ p.eta_inverter = 0.95;      % REAL-WORLD haircut. The datasheet 96% is the motor
                             % reaches the shaft." PROVISIONAL: one run, ~175 steady
                             % points; a steady-state test would tighten it.
 
-%% ---- COMPONENT DEGRADATION (2018-era motor + inverter) ----
-%  Our EMRAX 208 and PM100DX are ~2018 hardware, so they are almost certainly
-%  not making datasheet numbers any more. These two multipliers are where that
-%  gets accounted for: efficiency gets multiplied by them, so 1.00 = as-new.
-%
-%  BOTH DEFAULT TO 1.00 ON PURPOSE. We have NOT measured degradation on either
-%  unit. There is no historical log, no dyno run and no back-to-back comparison
-%  in this repo that supports any other number, so putting a number here would
-%  be inventing data -- and once a fabricated constant is in params it silently
-%  contaminates every study that reads it.
-%
-%  Do NOT fill these in from a rule of thumb, a forum post, or "motors lose
-%  about 1% a year". Fill them in from a MEASUREMENT. Three ways to get one, in
-%  cost order, are implemented in analysis/degradation_study.m:
-%     Method 3  no-load spin test    -- cheapest, needs no historical data
-%     Method 1  back-EMF / Ke        -- catches magnet demagnetisation
-%     Method 2  inverter thermal Rth -- needs 2023 logs to compare against
-%  Until then, the honest treatment is a SENSITIVITY BAND, not a point value:
-%  degradation_study.m sweeps plausible ranges and reports what they would cost.
-%
-%  Team belief (NOT a measurement, recorded so it can be tested): the inverter
-%  is the more degraded of the two. Method 2 is the one that tests it.
-%
-%  SCOPE -- read this before wiring them into anything. These two are consumed
-%  ONLY by analysis/degradation_study.m. They are deliberately NOT applied in
-%  lib/emrax208_efficiency.m and so do not touch the gear-ratio study, the SOC
-%  model, the accel model or drivetrain_efficiency.m. Degradation is a separate
-%  thing we are still chasing; keeping it out of the validated efficiency chain
-%  means a speculative number can never quietly move a result the team relies on.
-%  They live here anyway so that when a measurement DOES land there is exactly
-%  one place to put it -- same rule as every other constant in this file.
-p.degradation_motor    = 1.00;   % UNMEASURED. 1.00 = as-new. See above.
-p.degradation_inverter = 1.00;   % UNMEASURED. 1.00 = as-new. See above.
-
 %% ---- SPINNING BITS (only matters for accel model) ----
 %  Accelerating isn't just car vroom vroom (eeee for electric ig) moving forward -- you also have to spin up
 %  the rotor and the wheels. That costs real time.

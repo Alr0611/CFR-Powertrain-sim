@@ -3,12 +3,18 @@ function sweep_accel_sim()
 %   Builds the model first if it isn't loaded. Cross-check against
 %   accel_model.m: 4.61:1 -> ~4.72 s.
     mdl = 'accel_sim';
+    p = params_cfr26();                 % for the baseline ratio to restore on exit
     if ~bdIsLoaded(mdl)
         if isfile([mdl '.slx']), load_system(mdl); else, build_accel_simulink(); end
     end
-    % Tell the model's StopFcn to stay quiet (no per-ratio plot/print) during the sweep.
+    % Tell the model's StopFcn to stay quiet (no per-ratio plot/print) during the sweep,
+    % and restore state on the way out. The onCleanup fires on EVERY exit path -- normal
+    % finish, an error mid-loop, or a Ctrl-C -- so it (a) clears SWEEP_MODE and (b) resets
+    % G_ratio to the baseline. Without (b) an interrupted sweep would leave G_ratio parked
+    % on whatever ratio it died on (e.g. 5.20), and the next bare Run would silently give
+    % that ratio's number instead of the real 4.61 car.
     assignin('base','SWEEP_MODE',true);
-    cleanup = onCleanup(@() evalin('base','clear SWEEP_MODE'));
+    cleanup = onCleanup(@() sweep_cleanup(p.gear_current));
     gears = 4.0:0.2:5.2;
     t75s  = nan(size(gears));
     fprintf('\n=== accel_sim.slx: 0-75m by gear ratio ===\n');
@@ -25,4 +31,12 @@ function sweep_accel_sim()
     xline(4.61, 'r--', 'current 4.61');
     xlabel('Gear ratio'); ylabel('0-75 m (s)');
     title('accel\_sim.slx: 0-75 m vs gear ratio (higher ratio = quicker off the line)');
+end
+
+function sweep_cleanup(baseline)
+%SWEEP_CLEANUP  Restore base-workspace state after a sweep (any exit path).
+    if evalin('base','exist(''SWEEP_MODE'',''var'')')
+        evalin('base','clear SWEEP_MODE');
+    end
+    assignin('base','G_ratio', baseline);   % never leave the model on a stale swept ratio
 end

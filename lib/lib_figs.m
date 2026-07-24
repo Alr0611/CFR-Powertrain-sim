@@ -28,8 +28,16 @@ ax = axes(uitab(tg,'Title','SOC vs ratio'));
 hold(ax,'on'); cmap = turbo(ng);
 for i = 1:ng, plot(ax, time/60, soc_curves{i}*100, 'Color', cmap(i,:), 'LineWidth', 1); end
 xlabel(ax,'Time (min)'); ylabel(ax,'SOC (%)'); grid(ax,'on');
-colormap(ax, turbo); clim(ax,[gears(1) gears(end)]); cb = colorbar(ax); cb.Label.String = 'Gear ratio';
-title(ax, sprintf('SOC depletion, all %d ratios (%.2f-%.2f)', ng, gears(1), gears(end)));
+% clim needs strictly increasing limits -- a single tested ratio makes them equal,
+% so pad it (and skip the ratio colorbar, which is meaningless for one curve).
+if gears(end) > gears(1)
+    colormap(ax, turbo); clim(ax,[gears(1) gears(end)]);
+    cb = colorbar(ax); cb.Label.String = 'Gear ratio';
+    title(ax, sprintf('SOC depletion, all %d ratios (%.2f-%.2f)', ng, gears(1), gears(end)));
+else
+    legend(ax, arrayfun(@(g) sprintf('%.2f:1', g), gears, 'UniformOutput', false), 'Location','southwest');
+    title(ax, sprintf('SOC depletion (%.2f:1)', gears(1)));
+end
 
 ax = axes(uitab(tg,'Title','Motor efficiency'));
 plot(ax, ratios,[R.avg_eff],'o-'); xline(ax, p.gear_current,'r--'); grid(ax,'on');

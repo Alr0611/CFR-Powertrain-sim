@@ -15,7 +15,4 @@ function eff = emrax208_efficiency(rpm, torque_abs, p)
         eff = eff * p.eta_inverter;     % + inverter & real-world losses -> real
     end
     eff = min(max(eff, 0.05), 0.97);    % clip degenerate near-zero-load points
-    % NOTE: degradation is deliberately NOT applied here. It is unmeasured and
-    % still being chased, so it stays out of the validated model and lives in
-    % analysis/degradation_study.m instead. See p.degradation_* in params_cfr26.
 end
