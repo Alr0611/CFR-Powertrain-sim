@@ -10,6 +10,7 @@
 
 clear; clc; close all;
 cd(fileparts(mfilename('fullpath')));   % run from the repo root so data/ and output/ paths resolve
+if ~exist('output','dir'), mkdir('output'); end   % fresh copy may have no output/ folder
 addpath(fullfile(fileparts(mfilename('fullpath')), 'lib'));  % works wherever MATLAB is pointed
 p = params_cfr26();
 

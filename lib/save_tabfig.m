@@ -4,6 +4,11 @@ function save_tabfig(fig, stem)
 %   tabs) plus one PNG per tab, <stem>_<TabTitle>.png. exportgraphics cannot take
 %   a whole figure that contains UI components (the tab bar), so each tab's axes
 %   is exported on its own. A plain (non-tabbed) figure just gets <stem>.png.
+    % Make sure the destination folder exists -- a fresh copy of the repo (a Teams
+    % zip, or a clone where output/ was emptied) has no output/ folder, and both
+    % savefig and exportgraphics ERROR instead of creating it.
+    d = fileparts(stem);
+    if ~isempty(d) && ~exist(d,'dir'), mkdir(d); end
     savefig(fig, [stem '.fig']);
     tg = findobj(fig, 'Type', 'uitabgroup');
     if isempty(tg)

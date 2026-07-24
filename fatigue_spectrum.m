@@ -13,6 +13,7 @@
 
 clear; clc; close all;
 cd(fileparts(mfilename('fullpath')));   % run from the repo root so data/ and output/ paths resolve
+if ~exist('output','dir'), mkdir('output'); end   % fresh copy may have no output/ folder
 
 % Exact bin edges from 'Fatigue Load Cases.xlsx' (Load Case), + new 140-150 bin
 edges = [0.1 15.1 30.1 45.1 60.1 75 90 105 120 130 140 150];

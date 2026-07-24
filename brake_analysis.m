@@ -12,6 +12,7 @@
 
 clear; clc; close all;
 cd(fileparts(mfilename('fullpath')));   % run from the repo root so data/ and output/ paths resolve
+if ~exist('output','dir'), mkdir('output'); end   % fresh copy may have no output/ folder
 
 m_car = 294;           % kg, scales-with-driver (CG Calculator.xlsx)
 r_wheel = 0.2286;      % m
