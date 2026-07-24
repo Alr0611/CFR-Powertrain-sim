@@ -252,14 +252,17 @@ text(ax, xs+max(xq)*0.01, 1:numel(xs), lbls(idx), 'VerticalAlignment','middle');
 title(ax,'What to fix first: stages ranked by battery saved');
 
 % -- Tab 4: efficiency by stage (standalone %) -- the weakest link at a glance --
-% One bar per stage = that stage's OWN current efficiency. No cumulative energy,
-% no battery Wh; just how efficient each thing is, and what they multiply to. The
-% six bars multiply to eff0 exactly (overall = eff_shaft x spur x brg x chain x
-% diff x halfshaft), shown as the separate total bar at the bottom.
+% One bar per stage = that stage's OWN CAPABILITY efficiency, so every stage is on
+% the same footing (the five mechanical stages are capability numbers, so the motor
+% must be too). For motor+inverter that is the MEASURED loaded (in-band) number, NOT
+% the as-driven average -- 78% is the endurance AVERAGE dragged down by part-load,
+% not the box's efficiency. As-driven is drawn as a caret on the motor bar and on the
+% overall bar, so the operational gap is visible without pretending the hardware is
+% worse than it is. Capability bars multiply to the in-band overall ceiling.
 ax = axes(uitab(tg,'Title','Efficiency by stage'));
 st_name = {'motor + inverter','spur gearbox','bearing stack','chain', ...
            'diff (LSD)', sprintf('halfshaft@%d deg',B.hs_angle)};
-st_eff  = [eff_shaft, B.spur, B.bearings, B.chain, B.diff, hs_term(B.hs_angle)] * 100;
+st_eff  = [eff_inband, B.spur, B.bearings, B.chain, B.diff, hs_term(B.hs_angle)] * 100;
 [st_sorted, o] = sort(st_eff, 'ascend');           % weakest first -> shortest bar on top row
 names_sorted   = st_name(o);
 cols = repmat([0.62 0.66 0.70], numel(st_eff), 1); % muted grey for context
@@ -267,22 +270,140 @@ cols(1,:) = [0.91 0.41 0.20];                       % accent: the weakest stage
 y = 1:numel(st_sorted);
 hb = barh(ax, y, st_sorted, 0.62, 'FaceColor','flat','EdgeColor','none'); hold(ax,'on');
 hb.CData = cols;
-ov  = eff0*100;                                     % overall = product of all six stages
+ov_cap = eff_inband*eff_hw*100;                    % in-band ceiling = capability product
+ov_ad  = eff0*100;                                 % as-driven overall (part-loaded motor)
 yov = numel(st_sorted) + 1.5;
-barh(ax, yov, ov, 0.62, 'FaceColor',[0.20 0.28 0.40],'EdgeColor','none');
+barh(ax, yov, ov_cap, 0.62, 'FaceColor',[0.20 0.28 0.40],'EdgeColor','none');
 grid(ax,'on'); xlim(ax,[0 108]); xlabel(ax,'Stage efficiency (%)');
-set(ax,'YTick',[y, yov], 'YTickLabel',[names_sorted, {'OVERALL (all 6 stages)'}]);
+set(ax,'YTick',[y, yov], 'YTickLabel',[names_sorted, {'OVERALL (motor in-band)'}]);
 ylim(ax,[0 yov+0.9]);
 text(ax, st_sorted+1, y, compose('%.1f%%', st_sorted), ...
     'VerticalAlignment','middle','FontWeight','bold');
-text(ax, ov+1, yov, compose('%.1f%%', ov), 'VerticalAlignment','middle', ...
+text(ax, ov_cap+1, yov, compose('%.1f%%', ov_cap), 'VerticalAlignment','middle', ...
     'FontWeight','bold','Color',[0.20 0.28 0.40]);
-xline(ax, ov, ':', 'Color',[0.20 0.28 0.40], 'LineWidth',1.2);  % read each stage vs the result
-title(ax, sprintf(['Efficiency by stage: weakest link is %s (%.1f%%); ' ...
-    'all six multiply to %.1f%% overall'], strtrim(names_sorted{1}), st_sorted(1), ov));
+% AS-DRIVEN carets: motor stage (78%) and overall (62%) -- the part-load reality
+imot = find(strcmp(names_sorted,'motor + inverter'),1);
+plot(ax, eff_shaft*100, imot, 'v', 'MarkerSize',9, 'MarkerFaceColor',[0.85 0.20 0.15], ...
+    'MarkerEdgeColor','k');
+text(ax, eff_shaft*100, imot-0.4, sprintf('as-driven %.0f%%', eff_shaft*100), ...
+    'HorizontalAlignment','center','FontSize',8,'Color',[0.6 0.1 0.1]);
+plot(ax, ov_ad, yov, 'v', 'MarkerSize',9, 'MarkerFaceColor',[0.85 0.20 0.15],'MarkerEdgeColor','k');
+text(ax, ov_ad, yov-0.42, sprintf('as-driven %.0f%%', ov_ad), ...
+    'HorizontalAlignment','center','FontSize',8,'Color',[0.6 0.1 0.1]);
+xline(ax, ov_cap, ':', 'Color',[0.20 0.28 0.40], 'LineWidth',1.2);
+title(ax, sprintf(['Stage CAPABILITY: weakest link is %s (%.0f%% loaded); six multiply to %.1f%% ' ...
+    'ceiling. Red caret = as-driven (part-load) -> %.1f%% overall'], ...
+    strtrim(names_sorted{imot}), st_sorted(imot), ov_cap, ov_ad));
+
+%% ============================================================================
+%% 5. WHERE WE ACTUALLY RUN vs THE EFFICIENT ISLAND (+ what gearing does)
+%% ============================================================================
+% Load the real endurance operating points so we can show, not assert, that the
+% motor spends the lap OFF its efficient island -- and what a gear change does.
+opp_rpm = []; opp_tq = [];
+if isfile(csv)
+    Wop = readtable(csv);
+    if all(ismember({'PM100DX_motorSpeed','PM100DX_torqueFeedback'}, Wop.Properties.VariableNames))
+        rr = abs(Wop.PM100DX_motorSpeed); qq = abs(Wop.PM100DX_torqueFeedback);
+        mm = rr > 500 & qq > 2;                    % motoring points only
+        opp_rpm = rr(mm); opp_tq = qq(mm);
+    end
+end
+
+% -- Tab 5: motor+inverter efficiency MAP with our operating cloud + the island --
+% IMPORTANT: the raw efficiency formula keeps rising with power, so its unconstrained
+% max sits in the (unreachable) top-right corner. We mask the map to the motor's
+% ACHIEVABLE torque envelope -- T <= min(T_flat_cap, peak-power/omega) -- so the
+% "island" is a point the motor can actually reach. Colours are the CLEAN physics
+% model; our MEASURED as-driven number sits ~10 pts below (accessories, transients,
+% the low-torque tail), so read this map for POSITION, not absolute efficiency.
+axm = axes(uitab(tg,'Title','Efficiency map'));
+[RG, TG] = meshgrid(0:100:6000, 0:2:150);
+EFF = emrax208_efficiency(RG, TG, p) * 100;
+Pk_map = interp1(p.Prpm, p.Pkw, min(RG,p.redline), 'linear','extrap');   % kW available vs rpm
+Tavail = min(p.T_flat_cap, Pk_map*9549 ./ max(RG,50));                    % reachable torque
+EFF(TG > Tavail) = NaN;                              % grey out what the motor can't reach
+contourf(axm, RG, TG, EFF, [70 75 80 84 86 88 90 91 92], 'LineColor',[.6 .6 .6], 'HandleVisibility','off');
+hold(axm,'on'); colormap(axm, parula); clim(axm,[70 92]);
+cb = colorbar(axm); cb.Label.String = 'motor + inverter efficiency (%, clean physics)';
+E2 = EFF; E2(isnan(E2)) = -inf; [~, im] = max(E2(:));
+hIsl = plot(axm, RG(im), TG(im), 'p', 'MarkerSize',18, 'MarkerFaceColor','w', ...
+    'MarkerEdgeColor','k','LineWidth',1.3);
+text(axm, RG(im), TG(im)-11, sprintf('island ~%.0f%%', EFF(im)), ...
+    'HorizontalAlignment','center','FontWeight','bold');
+hCloud = [];
+if ~isempty(opp_rpm)
+    ds = 1:12:numel(opp_rpm);
+    hCloud = scatter(axm, opp_rpm(ds), opp_tq(ds), 7, [0.85 0.20 0.15], 'filled', 'MarkerFaceAlpha',0.18);
+    % clean direction arrow: where a lower ratio (4.0:1) pushes the operating load
+    Cx = median(opp_rpm); Cy = median(opp_tq); rs = 4.00 / p.gear_current;
+    plot(axm, [Cx Cx*rs], [Cy Cy/rs], 'w-', 'LineWidth',3, 'HandleVisibility','off');
+    hArr = plot(axm, Cx*rs, Cy/rs, 'w^', 'MarkerFaceColor','w', 'MarkerSize',11);
+    text(axm, 2850, Cy-7, sprintf('median ~%.0f Nm (part-load)', Cy), ...
+        'Color',[0.6 0.05 0.05],'FontWeight','bold');
+    legend(axm, [hCloud hIsl hArr], {'as-driven operating points', ...
+        sprintf('reachable island ~%.0f%%',EFF(im)), 'lower gearing (4.0:1) loads motor'}, ...
+        'Location','southeast','FontSize',8, 'TextColor','w','Color',[0.15 0.15 0.15]);
+end
+yline(axm, p.T_flat_cap, 'w--', 'HandleVisibility','off');
+xline(axm, p.redline, 'r:', 'HandleVisibility','off');
+xlabel(axm,'Motor rpm'); ylabel(axm,'Motor torque (Nm)'); xlim(axm,[0 6000]); ylim(axm,[0 150]);
+title(axm, 'Where we run (red) vs the reachable efficient island. Grey = torque the motor can''t make at that rpm.');
+
+% -- Tab 6: efficiency vs LOAD (line) with the ACTUAL time-at-load distribution (bars).
+%    The cliff below ~15 Nm is where efficiency collapses -- and it's where a big slice
+%    of the lap actually sits. Lower gearing shifts the bars right, out of the cliff.
+%    (Two single-axes tabs, not one tiled tab: save_tabfig exports one axes per tab.)
+axa = axes(uitab(tg,'Title','Eff vs load'));
+rpm0 = 3000; Tsw = 0:1:150; CLIFF = 15;
+effT = emrax208_efficiency(rpm0*ones(size(Tsw)), Tsw, p) * 100;
+yyaxis(axa,'left');
+patch(axa, [0 CLIFF CLIFF 0], [60 60 95 95], [0.85 0.25 0.15], 'FaceAlpha',0.09, 'EdgeColor','none');
+hold(axa,'on');
+plot(axa, Tsw, effT, 'LineWidth', 2.4);
+[peakE, ip] = max(effT);
+plot(axa, Tsw(ip), peakE, 'k^', 'MarkerFaceColor','k');
+text(axa, Tsw(ip), peakE+1.3, sprintf('peak %.0f%% @ %d Nm', peakE, Tsw(ip)), 'FontSize',9, 'HorizontalAlignment','center');
+ylabel(axa,'motor + inverter eff (%)'); ylim(axa,[60 94]);
+yyaxis(axa,'right'); cliff_pct = 0;
+if ~isempty(opp_tq)
+    histogram(axa, opp_tq, 0:5:150, 'Normalization','probability', ...
+        'FaceColor',[0.45 0.5 0.55], 'FaceAlpha',0.45, 'EdgeColor','none');
+    rs = 4.00 / p.gear_current;
+    histogram(axa, opp_tq/rs, 0:5:150, 'Normalization','probability', ...
+        'FaceColor',[0.15 0.35 0.7], 'FaceAlpha',0.30, 'EdgeColor','none');
+    cliff_pct = 100*mean(opp_tq < CLIFF);
+    ylabel(axa,'share of endurance time');
+end
+grid(axa,'on'); xlabel(axa,'Motor torque (Nm) at 3000 rpm'); xlim(axa,[0 150]);
+title(axa, sprintf(['Efficiency vs LOAD (line) + where we actually spend time (bars): %.0f%% of the lap ' ...
+    'is below %d Nm in the cliff.\nGrey = now, blue = lower gearing shifts it right, out of the cliff.'], cliff_pct, CLIFF));
+
+% -- Tab 7: efficiency vs RPM at a fixed torque -- core loss (a*rpm + b*rpm^2) drags
+%    the top end down: the OTHER way past the peak (revving high hurts, too).
+axb = axes(uitab(tg,'Title','Eff vs rpm'));
+T0 = 40; Rsw = 500:25:6000;
+effR = emrax208_efficiency(Rsw, T0*ones(size(Rsw)), p) * 100;
+plot(axb, Rsw, effR, 'LineWidth', 2.4); hold(axb,'on'); grid(axb,'on');
+[peakR, ir] = max(effR);
+plot(axb, Rsw(ir), peakR, 'k^', 'MarkerFaceColor','k');
+text(axb, Rsw(ir), peakR-1.6, sprintf('peak %.0f%% @ %d rpm', peakR, Rsw(ir)), 'FontSize',9, 'HorizontalAlignment','center');
+xline(axb, p.redline, 'r:', 'redline');
+if ~isempty(opp_rpm)
+    Rmed = median(opp_rpm); eMed = emrax208_efficiency(Rmed, T0, p)*100;
+    plot(axb, Rmed, eMed, 'o', 'MarkerSize',9, 'MarkerFaceColor',[0.85 0.2 0.15],'MarkerEdgeColor','k');
+    text(axb, Rmed, eMed-1.8, sprintf('endurance median ~%.0f rpm', Rmed), 'FontSize',8,'Color',[0.6 0.1 0.1],'HorizontalAlignment','center');
+end
+xlabel(axb,sprintf('Motor rpm (at a fixed %d Nm)', T0)); ylabel(axb,'motor + inverter eff (%)'); ylim(axb,[80 94]);
+title(axb,'Efficiency vs RPM: past the peak it falls as core loss grows (\propto rpm^2) -- revving high past the sweet spot costs efficiency');
 
 save_tabfig(fW, fullfile(outdir,'DTeff_Drivetrain_efficiency'));
-fprintf('Saved 1 tabbed figure window to output/ (waterfall, halfshaft sweep, levers ranked, efficiency by stage).\n\n');
+fprintf(['Saved 1 tabbed figure window to output/ (waterfall, halfshaft sweep, levers ranked,\n' ...
+         '  efficiency by stage, efficiency map, eff vs load, eff vs rpm).\n\n']);
+fprintf(' MOTOR+INVERTER is a MAP, not one number: peak (loaded) ~%.0f%%, in efficient band %.0f%%,\n', ...
+    emrax208_efficiency(2500,65,p)*100, eff_inband*100);
+fprintf('   as-driven endurance AVERAGE %.0f%% (part-load, not a worn motor). Gearing lower loads it\n', eff_shaft*100);
+fprintf('   toward the island; straightening halfshafts is a separate hardware gain (Tab: halfshaft).\n\n');
 
 fprintf('Sources: [1] CFR26_DT_Efficiency.pdf v4.0 (stage table + straight/corner time split).\n');
 fprintf('         Electrical end measured via freeman803 af/dteff method on July 11 telemetry.\n');
