@@ -88,7 +88,7 @@ What final drive best balances **motor efficiency**, **endurance pack charge**, 
 **acceleration**? We currently run **4.61:1**. The sweep covers **4.00–5.20**.
 
 Everything here is a range, the tyre data alone puts accel inside a
-±15% band. Read these as "which direction is better," not "we locked in this number."
+±15% band. Read these as "which direction is better".
 
 - **Efficiency + pack charge want a LOWER ratio (~4.2).** More drive energy stays in the
   motor's efficient band, and the pack ends endurance with a bit more left.
@@ -139,7 +139,7 @@ output/                  generated results (gitignored)
 - Battery model tracks the real pack to **~5 mV/cell** over 80 minutes.
 - Motor efficiency is built from datasheet physics and lands on the datasheet's ~96% peak
   by itself, then takes a measured inverter haircut to the real ~86–90%. Never fitted.
-- Accel model says 4.72 s where the real launch was **4.40 s** (conservative).
+- Accel model says 4.67 s where the real launch was **4.40 s** (conservative) sim over/underestimates.
 - Starting SOC from rest voltage (94.7%) matches the BMS (94.3%).
 - `verify_math.m` — **37 checks** against the source documents, all pass in R2026a.
 
