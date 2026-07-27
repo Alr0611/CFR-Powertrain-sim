@@ -15,6 +15,7 @@
 function build_accel_simulink()
 addpath(fullfile(fileparts(mfilename('fullpath')), 'lib'));  % works wherever MATLAB is pointed
 p = params_cfr26();
+gStr = num2str(p.gear_current);   % the model's default ratio, from params (was hardcoded 4.61)
 mdl = 'accel_sim';
 if bdIsLoaded(mdl), close_system(mdl, 0); end
 new_system(mdl);
@@ -105,14 +106,15 @@ set_param(mdl,'SolverType','Variable-step','Solver','ode45','StopTime','15','Max
 % still wins, and the model workspace is deliberately NOT used for the default --
 % a model-workspace G_ratio would SHADOW the sweep's base-workspace value and make
 % every swept ratio silently run as the default.
-set_param(mdl,'InitFcn','if ~exist(''G_ratio'',''var''), assignin(''base'',''G_ratio'',4.61); end');
+set_param(mdl,'InitFcn', ...
+    ['if ~exist(''G_ratio'',''var''), assignin(''base'',''G_ratio'',' gStr '); end']);
 
 % When the model opens, put the repo + lib on the MATLAB path so a teammate can just
 % open accel_sim.slx and use it (the RUN SWEEP button, params, etc.) WITHOUT running
 % START.m first. Uses the .slx's own folder, so it works wherever the repo lives.
 set_param(mdl,'PostLoadFcn', ...
     ['p=fileparts(get_param(''accel_sim'',''FileName'')); if ~isempty(p), addpath(p, fullfile(p,''lib'')); end; ' ...
-     'if ~exist(''G_ratio'',''var''), assignin(''base'',''G_ratio'',4.61); end']);
+     'if ~exist(''G_ratio'',''var''), assignin(''base'',''G_ratio'',' gStr '); end']);
 
 % Print a RESULT when you hit Run, so a bare Run isn't silent. The Stop block ends
 % the sim exactly at 75 m, so the final SimulationTime IS the 0-75 m time -- read it
@@ -132,7 +134,7 @@ try, open_system([mdl '/Scope']); catch, end
 try
     a = Simulink.Annotation(mdl, sprintf([ ...
         'HOW TO USE\n' ...
-        '  - Hit  Run  (top toolbar) for ONE ratio  (G_ratio, default 4.61).\n' ...
+        '  - Hit  Run  (top toolbar) for ONE ratio  (G_ratio, default ' gStr ').\n' ...
         '    -> prints the 0-75 m time + pops a distance/rpm plot.\n' ...
         '  - Double-click the green  RUN SWEEP  block for ALL ratios\n' ...
         '    -> table + a 0-75 m vs gear-ratio plot.  No typing needed.']));
@@ -144,7 +146,7 @@ end
 % Leave a default in the base workspace for the just-built (already-loaded) model,
 % since PostLoadFcn only fires on a fresh open, not on new_system. "Only if missing"
 % so a rebuild mid-workflow never clobbers a value already in play.
-if ~evalin('base','exist(''G_ratio'',''var'')'), assignin('base','G_ratio',4.61); end
+if ~evalin('base','exist(''G_ratio'',''var'')'), assignin('base','G_ratio',p.gear_current); end
 
 save_system(mdl, fullfile(pwd, [mdl '.slx']));
 fprintf('Built %s.slx.\n', mdl);

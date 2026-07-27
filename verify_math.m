@@ -86,9 +86,10 @@ fprintf('  converged launch: Fz_rear %.0f N, a_x %.2f m/s^2 (%.2fg), traction fo
 Tcap = Ftr*rw/(4.61*eta);
 fprintf('  -> motor torque cap %.0f Nm (main script TC seed printed ~147)\n', Tcap);
 pass('launch traction cap within 10 Nm of TC-seed value', abs(Tcap-147)<10);
-Fmotor = 140*4.61*eta/rw;
-fprintf('  motor can push %.0f N (140 Nm) vs %.0f N traction limit -> %s at launch\n', ...
-    Fmotor, Ftr, string(Fmotor>Ftr).replace("true","TRACTION-limited").replace("false","motor-limited"));
+Tflat  = 150;   % must track params_cfr26 p.T_flat_cap (datasheet spec peak)
+Fmotor = Tflat*4.61*eta/rw;
+fprintf('  motor can push %.0f N (%.0f Nm) vs %.0f N traction limit -> %s at launch\n', ...
+    Fmotor, Tflat, Ftr, string(Fmotor>Ftr).replace("true","TRACTION-limited").replace("false","motor-limited"));
 
 fprintf('\n=== 9. ENERGY THROUGHPUT ORDER-OF-MAGNITUDE ===\n');
 % 3.4 kWh over 22.5 km -> Wh/km, compare to typical FSAE endurance (~30-40 Wh/km...

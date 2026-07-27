@@ -51,7 +51,23 @@ p.rho_air = 1.225;          % air density at sea level-ish.
 %  was too small. So the sideways numbers are real test data, but
 %  these forward-grip numbers are basically a well-dressed estimate.
 %  Works out to mu ~1.37.
-%  Consequence: every accel time in this sim is a RANGE.
+%
+%  WHERE THIS UNCERTAINTY DOES *NOT* SHOW UP: the 0-75 m accel time at the
+%  ratios we actually run. This file used to warn that "every accel time is a
+%  RANGE" because of these numbers -- that is measurably NOT the case. At 4.61:1
+%  the car is TORQUE-limited for the whole run: 0 of 3694 integration steps to
+%  75 m hit the traction cap, and perturbing PDX1 by +/-20% or LMUX by +/-10%
+%  moves 0-75 m by 0.000 s (tripling grip does nothing).
+%  It DOES matter for: the traction-limit line in accel_model's tractive-effort
+%  plot, launch/TC work, and much higher ratios where the flat torque region
+%  starts to touch the cap.
+%
+%  The accel time's real uncertainty is p.eta_drivetrain: swinging it over
+%  0.76-0.84 (i.e. the differential assumption) moves 0-75 m by 0.23 s, which is
+%  ~10x every other parameter combined. Full budget at 4.61:1 -- numerical
+%  +/-0.0003 s, all parameters ~+/-0.12 s, and a +0.40 s (+9%) bias against the
+%  one real launch (4.40 s), which needs ~+19% torque/power to close and so
+%  lives in the torque envelope or the measurement, not in grip.
 p.tir.PDX1   = 2.1;         % grip at normal load     (GUESS, see above)
 p.tir.PDX2   = -0.40981;    % how grip drops as you squash the tire harder (GUESS)
 p.tir.FNOMIN = 667;         % N, the "normal load" the numbers above refer to
@@ -84,7 +100,11 @@ p.core_loss_b = 2.7778e-5;  % no load (magnets dragging through iron). ~575 W at
                             % of the loss story, and it's why revving high hurts.
 p.Prpm        = [0 1000 2000 3000 4000 5000 6000];   % peak power curve: rpm...
 p.Pkw         = [0   24   40   50   56   62   68];   % ...and the kW at each
-p.T_flat_cap  = 140;        % Nm. Max twist, low speed. (Spec says 150 peak.)
+p.T_flat_cap  = 150;        % Nm. Max twist, low speed. (DATASHEET spec peak.)
+                            % accel_fatigue treats 150 as "the command cap" when judging
+                            % tooth loads, so accel and fatigue agree on the same motor.
+                            % This cap binds from 0 to ~3300 rpm (~62 kph at 4.61:1),
+                            % i.e. most of a 0-75 m run, so it sets the accel number.
 p.eta_inverter = 0.95;      % REAL-WORLD haircut. The datasheet 96% is the motor
                             % ALONE at its best point, on a bench. The real car
                             % also runs power through the INVERTER (a whole second
@@ -96,6 +116,26 @@ p.eta_inverter = 0.95;      % REAL-WORLD haircut. The datasheet 96% is the motor
                             % turns "motor spec efficiency" into "what actually
                             % reaches the shaft." PROVISIONAL: one run, ~175 steady
                             % points; a steady-state test would tighten it.
+
+%% ---- HALFSHAFT CV-JOINT LOSS ----
+%  A CV joint loses power in proportion to the angle it works at:
+%      eta_shaft = 1 - 2*kloss*sin(beta)        (two joints per shaft)
+%  These lived inside drivetrain_efficiency.m; they are here now because
+%  accel_model.m needs the same model to answer "what would straightening the
+%  halfshafts buy us?", and two copies of a constant is how they drift apart.
+p.hs_kloss        = 0.090;  % friction-geometry coefficient. Cross-checked against the
+                            % CFR26 DT memo v4.0's own two points (0.99@3deg, 0.94@20deg
+                            % -> 0.096 and 0.088, agreeing to ~9%). (DERIVED)
+p.hs_angle_deg    = 12;     % static halfshaft angle, diff-to-wheel, at ride height
+                            % driving STRAIGHT. *** PLACEHOLDER -- MEASURE FROM CAD ***
+                            % Note this IS the straight-line angle: the joints work at
+                            % 12 deg even with the steering dead ahead. 0 deg is not a
+                            % driving condition, it is a repackaging target.
+p.hs_corner_deg   = 8;      % EXTRA articulation in a loaded corner, on top of static.
+p.hs_frac_straight= 0.724;  % fraction of an ENDURANCE lap spent near the static angle
+                            % (memo split). Lap-weighted -- a straight-line accel run
+                            % never sees the cornering term, so accel_model reports the
+                            % straight-only case alongside it.
 
 %% ---- SPINNING BITS (only matters for accel model) ----
 %  Accelerating isn't just car vroom vroom (eeee for electric ig) moving forward -- you also have to spin up

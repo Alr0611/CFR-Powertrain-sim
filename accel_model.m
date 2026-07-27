@@ -14,11 +14,16 @@ if ~exist('output','dir'), mkdir('output'); end   % fresh copy may have no outpu
 addpath(fullfile(fileparts(mfilename('fullpath')), 'lib'));  % works wherever MATLAB is pointed
 p = params_cfr26();
 
-fprintf('Wheel inertia %.4f kg*m^2 (%.1f kg, k=%.2f*r) | reflected @4.61 %.4f | rotor %.4f\n', ...
-    p.I_wheel, p.m_wheel, p.kFactor, p.n_wheels*p.I_wheel/4.61^2, p.I_rotor);
+fprintf('Wheel inertia %.4f kg*m^2 (%.1f kg, k=%.2f*r) | reflected @%.2f %.4f | rotor %.4f\n', ...
+    p.I_wheel, p.m_wheel, p.kFactor, p.gear_current, ...
+    p.n_wheels*p.I_wheel/p.gear_current^2, p.I_rotor);
 
 %% ---- SWEEP: 0-75m and 0-100kph vs ratio ----
-gears = 3.6:0.05:5.4;
+% Study range 4.00-5.20 (same window as gear_ratio_optimization), at 0.05 for a smooth
+% curve, with p.gear_current forced ONTO the grid. Before this the grid was 3.6:0.05:5.4,
+% which does not contain 4.61 -- every "current" lookup below silently snapped to 4.60
+% and then printed it as 4.61. The physics/equations are unchanged.
+gears = unique(round([4.00:0.05:5.20, p.gear_current], 4));
 t75 = nan(size(gears)); t100 = nan(size(gears)); vtrap = nan(size(gears));
 for i = 1:numel(gears)
     [t100(i), t75(i), vtrap(i)] = accel_run(gears(i), p);
@@ -26,19 +31,62 @@ end
 fprintf('\n=== INERTIA-BASED ACCEL SWEEP ===\n');
 for g = [4.0 4.2 p.gear_current 5.0 5.2]
     [~,j] = min(abs(gears-g)); tag=''; if abs(g-p.gear_current)<1e-6, tag=' (current)'; end
-    fprintf(' %.2f:1 -> 0-100kph %.2fs | 0-75m %.2fs | trap %.0f kph%s\n', gears(j),t100(j),t75(j),vtrap(j),tag);
+    % t100 is NaN when the ratio GEARS OUT below 100 kph (redline top speed =
+    % redline*2*pi/60/G*r_wheel < 27.8 m/s, i.e. any G > ~5.17). That is a real
+    % result, not a failure -- print it as such instead of the literal "NaN".
+    if isnan(t100(j)), t100str = '  n/a '; else, t100str = sprintf('%.2fs', t100(j)); end
+    fprintf(' %.2f:1 -> 0-100kph %s | 0-75m %.2fs | trap %.0f kph%s\n', ...
+        gears(j), t100str, t75(j), vtrap(j), tag);
 end
-[~,j461] = min(abs(gears-p.gear_current));
+[~,jCur] = min(abs(gears-p.gear_current));   % exact hit now that 4.61 is on the grid
 fprintf('0-75m is MONOTONIC (no interior optimum): accel favors higher ratio until gearing out.\n');
-fprintf('Model %.2fs at 4.61 vs real clean launch 4.40s -> ~%.2fs conservative.\n', t75(j461), t75(j461)-4.40);
+fprintf('Model %.2fs at %.2f vs real clean launch 4.40s -> ~%.2fs conservative.\n', ...
+    t75(jCur), gears(jCur), t75(jCur)-4.40);
 
-%% ---- WHEEL WEIGHT SENSITIVITY (@ 4.61) ----
-fprintf('\n=== WHEEL WEIGHT SENSITIVITY @ 4.61:1 (mass removed at tread radius) ===\n');
+%% ---- WHEEL WEIGHT SENSITIVITY (@ current ratio) ----
+fprintf('\n=== WHEEL WEIGHT SENSITIVITY @ %.2f:1 (mass removed at tread radius) ===\n', p.gear_current);
 for dkg = [0 0.25 0.5 0.75 1.0]
     ps = p; ps.m_car = p.m_car - 4*dkg; ps.I_wheel = p.I_wheel - dkg*p.r_wheel^2;
-    [~, t75s, ~] = accel_run(4.61, ps);
+    [~, t75s, ~] = accel_run(p.gear_current, ps);
     fprintf(' -%.2f kg/wheel (-%.1f kg total) -> 0-75m %.2fs\n', dkg, 4*dkg, t75s);
 end
+
+%% ---- HALFSHAFT ANGLE: what straightening them would BUY in accel ----
+% Same CV-joint model as drivetrain_efficiency, from params (hs_kloss / hs_angle_deg /
+% hs_corner_deg / hs_frac_straight). We SCALE the pinned p.eta_drivetrain by the ratio
+% of halfshaft terms rather than rebuilding the stage stack here, so params stays the
+% single source of truth and this can never disagree with the drivetrain tool.
+%
+% Read this carefully before quoting it: p.hs_angle_deg (12 deg) IS the straight-line
+% angle -- the joints work at 12 deg with the steering dead ahead. 0 deg is NOT a
+% driving condition, it is a REPACKAGING target for the diff/upright geometry. So the
+% 0 deg rows are "what we would gain if we rebuilt the geometry", not "what we get on
+% a straight-line run".
+%
+% Two columns because eta_drivetrain is LAP-WEIGHTED (72.4% at static + 27.6% at
+% static+8 deg cornering). A 0-75 m run never corners, so the straight-only column is
+% the honest one for THIS event; the lap-weighted column is what the endurance/gear
+% study uses. The difference at 12 deg is the size of that modelling choice.
+hsJoint    = @(beta) 1 - 2*p.hs_kloss*sind(beta);                       % one shaft, both joints
+hsLapWtd   = @(beta) p.hs_frac_straight*hsJoint(beta) ...
+                   + (1-p.hs_frac_straight)*hsJoint(beta+p.hs_corner_deg);
+hsRef      = hsLapWtd(p.hs_angle_deg);            % what p.eta_drivetrain already encodes
+fprintf('\n=== HALFSHAFT ANGLE @ %.2f:1 -- what straightening the geometry would buy ===\n', p.gear_current);
+fprintf(' (%g deg is the STRAIGHT-LINE angle; 0 deg = repackaged geometry, not a driving state)\n', p.hs_angle_deg);
+fprintf('  angle |   lap-weighted eta / 0-75m   |  straight-only eta / 0-75m  |  gain 0-75m\n');
+t75Ref = NaN;
+for beta = [p.hs_angle_deg 5 0]
+    pl = p; pl.eta_drivetrain = p.eta_drivetrain * hsLapWtd(beta)/hsRef;   % lap-weighted
+    ps = p; ps.eta_drivetrain = p.eta_drivetrain * hsJoint(beta)/hsRef;    % straight only
+    [~, tLap, ~] = accel_run(p.gear_current, pl);
+    [~, tStr, ~] = accel_run(p.gear_current, ps);
+    if isnan(t75Ref), t75Ref = tStr; end            % reference = straight-only at 12 deg
+    fprintf('  %5.1f | %.4f / %.3f s%15s| %.4f / %.3f s%12s| %+.3f s\n', ...
+        beta, pl.eta_drivetrain, tLap, '', ps.eta_drivetrain, tStr, '', tStr - t75Ref);
+end
+fprintf(' -> straightening 12 -> 0 deg is worth the last column; it is a HARDWARE change\n');
+fprintf('    (suspension/diff packaging), not a tune. Cross-check: drivetrain_efficiency\n');
+fprintf('    prices the same change in battery Wh over an endurance run.\n');
 
 %% ---- 40-80 kph CORNER-EXIT RECOVERY ----
 fprintf('\n=== 40-80 kph recovery (full throttle, ideal TC) ===\n');

@@ -46,31 +46,34 @@ ip.addParameter('keep', []);                 % optional extra mask (steady-state
 ip.parse(varargin{:});
 o = ip.Results;
 
-rpm  = abs(rpm(:));  tq = abs(torque(:));
-elec = abs(packV(:) .* packI(:));            % pack electrical power, W
-mech = tq .* rpm * 2*pi/60;                  % motor shaft power, W
-eff  = mech ./ max(elec, 1e-6);
+motorSpeed  = abs(rpm(:));  motorTorque = abs(torque(:));
+packPower       = abs(packV(:) .* packI(:));        % pack electrical power, W
+mechanicalPower = motorTorque .* motorSpeed * 2*pi/60;   % motor shaft power, W
+instantEfficiency = mechanicalPower ./ max(packPower, 1e-6);
 
-% clean motoring points only: real speed, real load, physical efficiency
-keep = rpm>500 & tq>5 & elec>500 & eff>0.3 & eff<1.0;
-if ~isempty(o.keep), keep = keep & logical(o.keep(:)); end
+% clean motoring points only: real speed, real load, physical efficiency.
+% MOTORING FILTER -- TODO (design review, STUBBED): driver-intent (>15% accelerator)
+% needs VCFRONT_acceleratorPosition, which the efficiency exports do not carry
+% (needs DAQ access). Keep the existing motorSpeed>500 & torque>5 gate; do not fake it.
+motoringMask = motorSpeed>500 & motorTorque>5 & packPower>500 & instantEfficiency>0.3 & instantEfficiency<1.0;
+if ~isempty(o.keep), motoringMask = motoringMask & logical(o.keep(:)); end
 
-nT = numel(o.tqEdges)-1;  nS = numel(o.rpmEdges)-1;
-it = discretize(tq,  o.tqEdges);             % which torque bin each sample is in
-is = discretize(rpm, o.rpmEdges);            % which speed band
-ok = keep & ~isnan(it) & ~isnan(is);
+numTorqueBins = numel(o.tqEdges)-1;  numSpeedBands = numel(o.rpmEdges)-1;
+torqueBin = discretize(motorTorque, o.tqEdges);    % which torque bin each sample is in
+speedBand = discretize(motorSpeed,  o.rpmEdges);   % which speed band
+binnedMask = motoringMask & ~isnan(torqueBin) & ~isnan(speedBand);
 
-lin  = sub2ind([nT nS], it(ok), is(ok));
-cnt  = accumarray(lin, 1,       [nT*nS 1]);
-esum = accumarray(lin, eff(ok), [nT*nS 1]);
-map  = esum ./ max(cnt, 1);
-map(cnt < o.minSamples) = NaN;
+linearIndex = sub2ind([numTorqueBins numSpeedBands], torqueBin(binnedMask), speedBand(binnedMask));
+binCount    = accumarray(linearIndex, 1,                          [numTorqueBins*numSpeedBands 1]);
+binEffSum   = accumarray(linearIndex, instantEfficiency(binnedMask), [numTorqueBins*numSpeedBands 1]);
+binEffMean  = binEffSum ./ max(binCount, 1);
+binEffMean(binCount < o.minSamples) = NaN;
 
-M.eff         = reshape(map, [nT nS]);
-M.n           = reshape(cnt, [nT nS]);
+M.eff         = reshape(binEffMean, [numTorqueBins numSpeedBands]);
+M.n           = reshape(binCount,   [numTorqueBins numSpeedBands]);
 M.tqCenters   = (o.tqEdges(1:end-1)  + o.tqEdges(2:end))  / 2;
 M.rpmCenters  = (o.rpmEdges(1:end-1) + o.rpmEdges(2:end)) / 2;
-M.eff_overall = sum(mech(keep)) / sum(elec(keep));
-M.point.eff   = eff;
-M.point.keep  = keep;
+M.eff_overall = sum(mechanicalPower(motoringMask)) / sum(packPower(motoringMask));
+M.point.eff   = instantEfficiency;
+M.point.keep  = motoringMask;
 end

@@ -66,7 +66,7 @@ g.Km       = 1.129;    % load distribution
 g.Kb       = 1.0;      % rim thickness
 g.Cp       = 191;      % MPa, elastic coefficient (steel/steel)
 g.T_cont   = 79.6;     % Nm  continuous motor torque (what gears live on)
-g.T_peak   = p.T_flat_cap;   % Nm  peak (140)
+g.T_peak   = p.T_flat_cap;   % Nm  peak (150, datasheet spec)
 g.St_allow = mat.St;   % MPa bending allowable  (see material block above)
 g.Sc_allow = mat.Sc;   % MPa contact allowable
 
