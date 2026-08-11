@@ -52,21 +52,33 @@ def runs():
     return out
 
 
-def energy_ratio(r, run, t_lo=1.0, t_hi=4.0, detail=False):
+def energy_ratio(r, run, t_lo=1.0, t_hi=4.0, detail=False, src="front"):
     """needed / delivered over the window. Equals eta_drivetrain at the correct radius.
 
-    The window starts at 1.0 s deliberately: before that the car is spinning its rears
-    (logged slip peaks ~7.6) so motor speed is NOT vehicle speed, and torque is being
-    chopped by TC. From 1.0 s on, slip is small and motor rpm tracks road speed.
+    src="front" uses the UNDRIVEN FRONT wheels for vehicle speed. Use this one.
+    src="motor" uses motor speed / G. Kept only to show what the error looks like.
+
+    Why it matters, this was got wrong once already: the rears are still slipping through
+    this whole window, 3-6% against the fronts at 1-4 s and 12-22% at 1.0 s. Deriving
+    vehicle speed from motor speed therefore OVERSTATES v by ~4-5%, and since KE goes as
+    v^2 that overstates the energy the car absorbed by ~9%. That inflated the implied eta
+    at r = 0.221 from 0.99 to 1.07 and made it look like a conservation-of-energy
+    violation when it is really just an implausibly high efficiency.
+
+    Front wheels under-read slightly (rolling resistance, their own small slip), so the
+    truth sits a hair above the front number. Not corrected for, it is well under the
+    effect being measured.
     """
-    t, rpm, T = run["t"], run["rpm"], run["T"]
+    t, rpm, T, wf = run["t"], run["rpm"], run["T"], run["wf"]
     m = (t >= t_lo) & (t <= t_hi)
     if m.sum() < 8:
         return np.nan
-    t_, rpm_, T_ = t[m], rpm[m], T[m]
+    t_, rpm_, T_, wf_ = t[m], rpm[m], T[m], wf[m]
     w = rpm_ * 2 * np.pi / 60
-    # vehicle speed implied by MOTOR speed at this radius (small slip in this window)
-    v = w / G_RATIO * r
+    if src == "front":
+        v = wf_ * 2 * np.pi / 60 * r
+    else:
+        v = w / G_RATIO * r
 
     I_wheel = KFACTOR**2 * M_WHEEL * r**2
     # effective translating mass: car + 4 wheels + rotor/driveline reflected through G
@@ -130,8 +142,9 @@ if __name__ == "__main__":
                   f"{e['dKE']/1000:9.1f} {e['road']/1000:9.1f} {e['needed']/1000:11.1f} "
                   f"{e['delivered']/1000:10.1f} {e['ratio']:8.3f}")
     print("\n  'motor kJ' is the integral of T_feedback * omega. It contains NO radius.")
-    print("  'needed kJ' is what the car physically absorbed. Ratio > 1 means the road")
-    print("  received more energy than the motor produced, which cannot happen.")
+    print("  'needed kJ' is what the car absorbed, off the undriven front wheels.")
+    print("  Ratio IS the required eta_drivetrain. Above 1.0 is impossible; above ~0.90")
+    print("  is not impossible but is not credible for this drivetrain either.")
 
     print("\n=== the honest trade: every (radius, eta) pair consistent with the log ===")
     print("Both cannot be chosen freely. Pick the radius with a tape measure and eta")
@@ -141,12 +154,25 @@ if __name__ == "__main__":
         mu = float(np.nanmean([energy_ratio(r, run) for run in R]))
         c = ""
         if r == 0.2032:
-            c = "firmware TIRE_RADIUS_M; 16x6.0-10 unloaded"
+            c = "firmware TIRE_RADIUS_M; 16in OD / 2"
         elif r == 0.2210:
             c = "params p.r_wheel, TTC RE for 18.0x6.0-10"
         elif r == 0.2286:
             c = "18 inch OD / 2, unloaded"
         elif r == 0.2000:
             c = "~16 inch effective rolling"
-        flag = "  <-- NOT PHYSICAL" if mu > 1.0 else ""
+        if mu > 1.0:
+            flag = "  <-- NOT PHYSICAL"
+        elif mu > 0.90:
+            flag = "  <-- implausible for spur+chain+diff+12deg halfshafts"
+        else:
+            flag = ""
         print(f"{r:8.4f} {mu:13.3f}  {c}{flag}")
+
+    print("\n=== same thing off MOTOR speed, to show the error that was made ===")
+    print("Motor speed includes rear wheelspin, which is still 3-6% here. Don't use this.")
+    print(f"{'r (m)':>8} {'front (right)':>15} {'motor (wrong)':>15}")
+    for r in (0.2000, 0.2032, 0.2100, 0.2210, 0.2286):
+        a = float(np.nanmean([energy_ratio(r, run) for run in R]))
+        b = float(np.nanmean([energy_ratio(r, run, src="motor") for run in R]))
+        print(f"{r:8.4f} {a:15.3f} {b:15.3f}")

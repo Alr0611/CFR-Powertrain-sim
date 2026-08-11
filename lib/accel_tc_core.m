@@ -19,7 +19,18 @@ function R = accel_tc_core(p, tc, tyre, G)
     tc_every = round((1/tc.rate_hz)/dt);
     Iw  = p.I_wheel * 2;          % two driven wheels lumped into one rear axle
     Im  = p.I_rotor + p.I_driveline;   % motor-side inertia
-    r   = p.r_wheel;
+    % TWO radii, and they are genuinely different physical quantities:
+    %   r      EFFECTIVE ROLLING radius. Distance per radian. Converts wheel speed to
+    %          road speed and defines zero slip. p.r_wheel, roll-out measured.
+    %   r_load LOADED radius. Ground to wheel centre. The tyre force acts at the contact
+    %          patch, so THIS is the moment arm in the wheel torque balance.
+    % r_load < r always, because a loaded tyre rolls further per rev than its squashed
+    % radius suggests (the tread band is inextensible and walks over the flat spot).
+    % Using r for both underestimates wheel force by r/r_load, about 5%.
+    % Falls back to r if p.r_load is absent, so old param files still run.
+    r      = p.r_wheel;
+    r_load = r;
+    if isfield(p, 'r_load'), r_load = p.r_load; end
 
     v = 0; x = 0; wWheel = 0; t = 0; i_term = 0; d_prev = 0; y = 0;
     v_prev = 0; a_prev = 0;
@@ -107,7 +118,9 @@ function R = accel_tc_core(p, tc, tyre, G)
 
         % ---- integrate ----
         T_axle  = T_cmd * G * p.eta_drivetrain;             % motor torque -> axle
-        dwheel  = (T_axle - Fx*r - p.T_F*G) / (Iw + Im*G^2);
+        % Fx acts at the contact patch, so the moment arm is the LOADED radius, not the
+        % effective rolling radius used for speed and slip above.
+        dwheel  = (T_axle - Fx*r_load - p.T_F*G) / (Iw + Im*G^2);
         Fdrag   = 0.5*p.rho_air*p.CdA*v^2;
         Froll   = p.Crr*(p.m_car*p.g + Fdown);
         dv      = (Fx - Fdrag - Froll)/p.m_car;

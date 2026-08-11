@@ -40,43 +40,111 @@ p.eta_drivetrain = 0.794;   % Of the mechanical power the motor makes, ~79% reac
 
 %% ---- THE CAR ITSELF ----
 p.m_car   = 294;            % kg, car + driver, on actual scales. (MEASURED)
-p.r_wheel = 0.221;          % m, EFFECTIVE ROLLING radius. MEASURED, TTC Round 9
-                            % drive/brake runs 69/70/72/73, Hoosier 18.0x6.0-10 R20
-                            % (RawData: RunData_DriveBrake_Matlab_SI_Round9.zip).
-                            % Channel RE, median by vertical load:
-                            %    600-800 N  -> 0.2274      800-1000 N -> 0.2270
-                            %   1000-1400 N -> 0.2208
-                            % Loaded radius RL (the force lever arm) runs a little
-                            % smaller, 0.2152-0.2196 over the same loads. 0.221 sits in
-                            % the working band; the sim uses one radius for both the
-                            % force arm and the speed conversion, so this is a
-                            % compromise between RE and RL, not an exact either.
+p.r_wheel = 0.200;          % m, EFFECTIVE ROLLING radius. MEASURED ON THE CAR.
+                            % Roll-out test, 2026-08-11: chalk mark on a rear tyre, car
+                            % on the floor, pushed 2 full revolutions -> 99 in = 2.515 m.
+                            % Circumference 1.2573 m -> r_eff = 0.2001 m.
                             %
-                            % HISTORY, so nobody redoes this: was 0.2286 (18" OD / 2,
-                            % UNLOADED). Briefly set to 0.204 from OptimumLap
-                            % CFR26.OLVeh + firmware TIRE_RADIUS_M 0.2032 -- BOTH OF
-                            % THOSE ARE TOO SMALL, the measured data above overrules
-                            % them. The firmware constant being ~8% under measured is a
-                            % real finding: it biases VCFRONT_vehicleSpeed and every
-                            % slip number derived from it. Flag it to the embedded team.
+                            % THIRD CHECK, off our tyre's own TTC cornering runs (Hoosier
+                            % 43075 16x7.5-10, runs 2,4,5,6,7,8,9): loaded radius RL
+                            % medians 0.1897-0.1944 m. The RE channel is corrupt on those
+                            % runs (rig derivation goes singular at low speed), so take
+                            % the donor's clean RE-RL offset of +6.7 mm and apply it:
+                            % r_eff ~ 0.1988 m. tools/tyre_crosscheck_16x75.py.
+                            % Three independent numbers: 0.2001 roll-out, 0.1988 TTC,
+                            % 0.1975 log. All inside 1.3%.
                             %
-                            % VALID ONLY IF the car runs the 18.0x6.0-10. Round 9 also
-                            % tested Hoosier 16.0x6.0-10 and 16.0x7.5-10, which have NO
-                            % drive/brake runs. Confirm the tyre with a tape measure.
+                            % CROSS-CHECK, fully independent, agrees to 1.3%: the logged
+                            % accel runs give r = 0.1975 from an energy balance at
+                            % eta 0.794 (tools/radius_from_energy_balance.py). Turn that
+                            % round and at r = 0.200 the log implies eta = 0.810 against
+                            % the 0.794 this file models. 2% apart on a number nothing
+                            % here was fitted to.
+                            % Tape across an unloaded rear read 15-15.5 in OD, i.e. a
+                            % nominal 16 in tyre. Consistent, but the least reliable of
+                            % the three (curved tread, hand-held tape) so it does not set
+                            % the value.
+                            %
+                            % *** THE CAR IS ON A 16 INCH TYRE, NOT AN 18. *** This was
+                            % 0.221 and that was WRONG BY 11%. 0.221 is a real number but
+                            % it is the TTC RE channel for the Hoosier 18.0x6.0-10, which
+                            % is not what the car runs. Inheriting a measurement of the
+                            % wrong part is how it survived three sessions.
+                            % It accounts for essentially the whole 0-75 m gap: the sim
+                            % was slower than the car because it thought each wheel
+                            % revolution covered 11% more ground than it does.
+                            %
+                            % Firmware TIRE_RADIUS_M = 0.2032 was therefore about RIGHT
+                            % (1.6% over), not 8% under as previously recorded. The
+                            % earlier "firmware is badly wrong" finding was an artifact
+                            % of the wrong radius here. Nothing to raise with embedded.
+                            % The 1.6% is comfortably explained by tyre WEAR: 0.2032 is
+                            % nominal 16 in OD / 2, i.e. a fresh tyre, and this roll-out
+                            % is on worn rubber. 3 mm of tread off the radius is exactly
+                            % that gap. Could also just be a round-number guesstimate on
+                            % their side. Either way it is not a bug.
+                            % NOTE this means r_eff DRIFTS with tread life. 0.200 is the
+                            % current set. Re-run the roll-out on new tyres.
+p.r_load  = 0.1901;         % m, LOADED radius. Ground to wheel centre with the tyre
+                            % squashed. This is a DIFFERENT number from r_wheel above and
+                            % they are not interchangeable:
+                            %   r_wheel (0.2000) = distance per radian. Converts wheel
+                            %                      speed to road speed, defines zero slip.
+                            %   r_load  (0.1901) = the moment arm. Tyre force acts at the
+                            %                      contact patch, so the wheel torque
+                            %                      balance uses THIS.
+                            % r_load < r_wheel always. A loaded tyre rolls further per rev
+                            % than its squashed radius suggests, because the tread band is
+                            % basically inextensible and walks over its own flat spot.
+                            %
+                            % MEASURED, TTC Round 9 cornering runs 2,4,5,6,7,8,9 (Hoosier
+                            % 16x7.5-10, our tyre), RL channel at 68-74 kPa. RL falls with
+                            % load, which is why the value is quoted AT the load the rears
+                            % actually carry:
+                            %    500-700 N  -> 0.1942     900-1100 N -> 0.1900
+                            %    700-900 N  -> 0.1929    1100-1300 N -> 0.1898
+                            % Rear load per tyre at launch is ~926 N (static 696 N plus
+                            % transfer at 7.7 m/s2). TTC RL at 926 +/- 150 N = 0.1901.
+                            %
+                            % Using r_wheel for both, which this sim did until now,
+                            % understates wheel force by r_wheel/r_load = 5.2% and cost
+                            % ~0.10 s over 75 m. Sensitivity is -0.010 s per mm.
+                            % NOT A FREE PARAMETER. It is measured, and it is only quoted
+                            % to 4 dp because RL itself moves ~4 mm across the load range.
 p.g       = 9.81;           % If this changes we have bigger problems.
 p.rho_air = 1.225;          % air density at sea level-ish.
 
 %% ---- TIRE GRIP ----
-%  MEASURED now, superseding the derived set. This block used to say Calspan never tested
-%  this tire for forward grip. Not true any more: TTC Round 9 ran drive/brake sweeps on
-%  the Hoosier 18.0x6.0-10 R20 (runs 69/70/72/73) and tools/refit_mf_pdx2_constrained.py
-%  fits to them. 5467 samples, |SA| and |IA| under 0.5 deg, P = 71 +/- 3 kPa.
-%  R^2 0.99708, RMS 85.9 N against an |Fx| p95 of ~2650 N.
+%  *** DERIVED, AND IT IS THE WRONG TYRE. READ THIS BEFORE QUOTING ANY OF IT. ***
 %
-%  *** ONLY VALID IF WE RUN THE 18.0x6.0-10. *** Round 9 also tested the 16.0x6.0-10 and
-%  16.0x7.5-10 and neither has drive/brake runs, so on 16s this whole block reverts to
-%  estimate. UNCONFIRMED, needs a tape across an unloaded rear tyre. See HOW_TO_USE.md,
-%  the log energy balance says 0.221 can't be right.
+%  OUR TYRE, confirmed on the car and against the TTC 'tireid' field:
+%      Hoosier 43075 16x7.5-10 R20
+%      cornering runs 2,4,5,6 (7in rim) and 7,8,9 (8in rim)
+%      drive/brake runs: NONE. There are none. Never were.
+%  THE DONOR this Fx set is fitted to:
+%      Hoosier 43100 18.0x6.0-10 R20, drive/brake runs 68-73
+%
+%  So the set is fitted to real data, off a casing that is 1.5 in NARROWER and 2 in
+%  LARGER in diameter than ours. Same maker, same R20 compound, same 10 in rim.
+%  Provenance is DERIVED, not MEASURED. Do not present it as measured for this car.
+%
+%  HOW BIG IS THE TRANSFER ERROR? Both tyres have cornering data, so it is measurable
+%  rather than a shrug. Peak lateral mu, ours vs donor, matched load, 68-74 kPa, zero
+%  camber, like-for-like 7 in rim (tools/tyre_crosscheck_16x75.py):
+%      Fz 500-700   0.950      Fz 900-1100  0.974
+%      Fz 700-900   0.949      Fz 1100-1300 0.962     mean 0.959
+%  Our tyre grips about 4% LESS than the donor, so this set mildly OVERSTATES our grip.
+%  Small, and in the unsafe direction, so know about it. CAVEAT: that is a LATERAL ratio
+%  judging a LONGITUDINAL set. It is an anchor, not a measurement.
+%
+%  Survives the tyre-size change: the load-sensitivity METHOD, and the finding that a
+%  free fit cannot identify PDX2 (see below). Those are about fitting, not casing. The
+%  mu-slip SHAPE is mostly a compound property so it travels reasonably.
+%  Does NOT survive: the absolute grip level and the exact peak slip for our tyre.
+%
+%  Fit details for the 18.0x6.0-10: 5467 samples, |SA| and |IA| under 0.5 deg,
+%  P = 71 +/- 3 kPa, R^2 0.99708, RMS 85.9 N against an |Fx| p95 of ~2650 N.
+%  tools/refit_mf_pdx2_constrained.py.
 %
 %  *** HIGH-SLIP TAIL STILL NOT MEASURED. *** Sweep reaches |SL| <= 0.186, a standing
 %  start runs 5-7. Past 0.19 is extrapolated shape, and that's exactly what decides

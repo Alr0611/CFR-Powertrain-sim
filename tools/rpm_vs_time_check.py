@@ -1,91 +1,102 @@
 #!/usr/bin/env python3
-"""The radius-free test: MOTOR RPM vs TIME from launch, sim against log.
+"""Sim vs log speed against time since launch.
 
-Every other comparison of the 0-75 m gap runs through p.r_wheel, which is the one number
-still in dispute. This one does not, on the measurement side: PM100DX_motorSpeed is a
-direct inverter reading and 'time since launch' is a clock. Neither involves a radius.
+*** READ THIS FIRST, IT IS THE POINT OF THE FILE. ***
+Comparing MOTOR rpm to MOTOR rpm looks radius-free and tempting, and it is WRONG. Logged
+motor rpm carries the rear wheelspin, which runs 3-6% through this window and 12-22% at
+1.0 s. The sim barely spins. A motor-to-motor comparison therefore charges the sim for
+slip it never had and reports a ~14% deficit when the real one is ~8.7%.
 
-So if the sim's motor rpm climbs more slowly than the logged motor rpm, there is a real
-force deficit in the model, and no amount of arguing about the tyre size makes it go away.
-(The radius still enters the MODEL, through reflected inertia and road load, so this tests
-the model as configured -- but the yardstick it is measured against is radius-free.)
+The right comparison is WHEEL to WHEEL: sim wheel speed against the UNDRIVEN FRONT
+wheels. Both columns are printed so the size of the mistake stays visible.
 
-Three sim variants are compared so the size of each candidate lever is visible:
+If the sim's wheel speed climbs more slowly than the front wheels, the model is short on
+force as configured. The radius still enters the MODEL through reflected inertia and road
+load, so this tests the model at whatever p.r_wheel is set to.
+
+Three sim variants, so the size of each candidate lever is visible:
   base    as shipped: eta 0.794, driver torque capped at 123 Nm
   eta088  eta raised to 0.88, the top of any defensible range
   T150    torque cap lifted to the motor's 150 Nm datasheet peak
+
+FIRST run tools/dump_sim_traces.m in MATLAB to write the three sim traces into output/.
 """
+import os
+import sys
+
 import numpy as np
 import pandas as pd
 
 CSV = r"C:\Users\Aboud\Downloads\today_test.csv"
-SCRATCH = (r"C:\Users\Aboud\AppData\Local\Temp\scratch\c--Users-Aboud-Downloads"
-           r"\30ada796-de09-4c1f-8abd-23e713218785\scratchpad")
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output")
 RUN_STARTS = (15554, 15741, 15914, 16151)
-GRID = np.arange(0.0, 5.01, 0.25)
+GRID = np.arange(1.0, 4.51, 0.5)
+G_RATIO = 4.6154
 
 
 def logged_runs():
     d = pd.read_csv(CSV)
+    d["wF"] = 0.5 * (d["VCFRONT_wheelSpeedFL"] + d["VCFRONT_wheelSpeedFR"])
     out = []
     for t0 in RUN_STARTS:
         seg = d[(d["t_s"] >= t0 - 5) & (d["t_s"] <= t0 + 25)]
-        t = seg["t_s"].to_numpy()
         rpm = seg["PM100DX_motorSpeed"].to_numpy()
         if rpm.max() < 4000:
             continue
-        # Launch = last sample at rest before rpm takes off, so t=0 means the same
-        # instant in every run and in the sim.
+        # Launch = last sample at rest before rpm takes off, so t=0 is the same instant
+        # in every run and in the sim.
         i0 = int(np.argmax(rpm > 100))
         while i0 > 0 and rpm[i0 - 1] > 20:
             i0 -= 1
-        out.append((t0, t[i0:] - t[i0], rpm[i0:]))
+        t = seg["t_s"].to_numpy()[i0:] - seg["t_s"].to_numpy()[i0]
+        out.append((t0, t, rpm[i0:], seg["wF"].to_numpy()[i0:]))
     return out
 
 
 if __name__ == "__main__":
     runs = logged_runs()
-    print(f"{len(runs)} standing starts found\n")
+    if not runs:
+        sys.exit("no standing starts found")
+    logM = np.nanmean([np.interp(GRID, t, m) for _, t, m, _ in runs], axis=0)
+    logF = np.nanmean([np.interp(GRID, t, f) for _, t, _, f in runs], axis=0)
 
-    print("=== MOTOR RPM vs TIME SINCE LAUNCH (no radius anywhere in the measurement) ===")
-    hdr = f"{'t (s)':>7}" + "".join(f"{f'run{t0}':>10}" for t0, _, _ in runs) + f"{'LOG mean':>11}"
     sims = {}
     for name in ("base", "eta088", "T150"):
-        s = pd.read_csv(f"{SCRATCH}\\sim_{name}.csv")
-        sims[name] = np.interp(GRID, s["t"], s["rpm"])
-        hdr += f"{name:>10}"
+        p = os.path.join(OUT, f"sim_{name}.csv")
+        if not os.path.isfile(p):
+            sys.exit(f"missing {p}\nrun tools/dump_sim_traces.m in MATLAB first")
+        sims[name] = pd.read_csv(p)
+    r_wheel = float(sims["base"].attrs.get("r", 0)) or None
+
+    print(f"{len(runs)} standing starts\n")
+    print("=== rear wheelspin in the log, which is why motor-to-motor is wrong ===")
+    print(f"{'t':>6} {'motor/G':>9} {'front':>9} {'slip':>8}")
+    for i, g in enumerate(GRID):
+        print(f"{g:6.1f} {logM[i]/G_RATIO:9.1f} {logF[i]:9.1f} "
+              f"{logM[i]/G_RATIO/logF[i]-1:+8.1%}")
+
+    print("\n=== WHEEL vs WHEEL (correct) and MOTOR vs MOTOR (inflated) ===")
+    print("deficit = sim below log. Negative means the model is short on force.")
+    hdr = f"{'t':>6}"
+    for n in sims:
+        hdr += f"{n+' whl':>12}{n+' mot':>12}"
     print(hdr)
-
-    logmat = np.full((len(runs), len(GRID)), np.nan)
-    for i, (t0, t, rpm) in enumerate(runs):
-        logmat[i] = np.interp(GRID, t, rpm, right=np.nan)
-    logmean = np.nanmean(logmat, axis=0)
-
-    for j, g in enumerate(GRID):
-        row = f"{g:7.2f}"
-        for i in range(len(runs)):
-            row += f"{logmat[i, j]:10.0f}"
-        row += f"{logmean[j]:11.0f}"
-        for name in sims:
-            row += f"{sims[name][j]:10.0f}"
+    avg = {n: ([], []) for n in sims}
+    for i, g in enumerate(GRID):
+        row = f"{g:6.1f}"
+        for n, s in sims.items():
+            simW = np.interp(g, s["t"], s["wheel_rpm"])
+            simM = np.interp(g, s["t"], s["rpm"])
+            dw = 100 * (simW - logF[i]) / logF[i]
+            dm = 100 * (simM - logM[i]) / logM[i]
+            avg[n][0].append(dw)
+            avg[n][1].append(dm)
+            row += f"{dw:11.1f}%{dm:11.1f}%"
         print(row)
 
-    print("\n=== sim deficit against the logged mean, in rpm and in %% ===")
-    print(f"{'t (s)':>7}" + "".join(f"{n:>18}" for n in sims))
-    for j, g in enumerate(GRID):
-        if g < 0.5 or not np.isfinite(logmean[j]):
-            continue
-        row = f"{g:7.2f}"
-        for name in sims:
-            d_ = sims[name][j] - logmean[j]
-            row += f"{d_:11.0f} ({100*d_/logmean[j]:+5.1f}%)"
-        print(row)
-
-    print("\n=== average rpm deficit over 1.0-4.0 s ===")
-    w = (GRID >= 1.0) & (GRID <= 4.0) & np.isfinite(logmean)
-    for name in sims:
-        d_ = 100 * (sims[name][w] - logmean[w]) / logmean[w]
-        print(f"  {name:8s} {d_.mean():+6.1f}%")
-    print("\nA rpm deficit is a FORCE deficit: at matched speed the same road load applies,")
-    print("so falling behind in rpm means the model is not making the tractive force the")
-    print("car made. This is the 0-75 m gap seen without the radius in the way.")
+    print(f"\n=== average over {GRID[0]:.1f}-{GRID[-1]:.1f} s ===")
+    print(f"{'variant':>10} {'wheel (real)':>14} {'motor (inflated)':>18}")
+    for n in sims:
+        print(f"{n:>10} {np.mean(avg[n][0]):13.1f}% {np.mean(avg[n][1]):17.1f}%")
+    print("\nThe wheel column is the one to quote. The motor column is kept only to show")
+    print("how much rear wheelspin inflates it.")

@@ -26,3 +26,7 @@ tools/influx_token.txt
 # competitor e-meter data: ~113 MB of other teams' TDMS logs, unpacked by
 # tools/emeter_unpack.py. Regenerable from the source zip -- never commit it.
 emeter_work/
+
+# Handoff docs stay LOCAL. Working notes between sessions, not part of the repo.
+HANDOFF_*.md
+handoff.md

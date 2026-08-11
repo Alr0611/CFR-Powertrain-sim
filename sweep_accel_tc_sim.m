@@ -10,11 +10,15 @@ function sweep_accel_tc_sim()
 % 130 Nm. On one axis you'd read "kp 0.59 beats kp 0.47" without noticing the ceiling
 % moved too. Separate pages keep each map self-consistent.
 %
-% DON'T QUOTE AN ABSOLUTE 0-75 m FROM THIS. The logged runs don't reconcile with
-% p.r_wheel = 0.221: at that radius the car put more energy into the road than the motor
-% made, which needs eta > 1. See tools/radius_from_energy_balance.py. Until someone tapes
-% a rear tyre, absolute times carry a ~10% scale error. Relative comparisons (gain vs
-% gain, ratio vs ratio, TC on vs off) are fine, the error mostly cancels.
+% ABSOLUTE 0-75 m IS NOW REASONABLE, WITH ONE CAVEAT. The radius is settled
+% (p.r_wheel = 0.200, roll-out on the car, agrees with TTC and with the log). At 4.61:1
+% and the car's real 123 Nm ceiling the sim gives 4.795 s against 4.637 s measured, +3.4%.
+% The caveat is the tyre model: the Fx set is borrowed off a Hoosier 18.0x6.0-10 because
+% our 16x7.5-10 has no drive/brake data. Cornering data puts our grip ~4% under the
+% donor's, so grip here is mildly optimistic. Relative comparisons cancel most of that.
+%
+% NOTE the per-map numbers below use each map's OWN torque ceiling (150 / 130 Nm), not
+% the 123 Nm the car actually requests, so they are faster than the car by design.
 %
 % Gains below are compile-time defaults. The log pins full throttle at 123.0 Nm, which
 % matches no compile-time map, so NVM was written and the live gains are UNKNOWN.
@@ -37,7 +41,16 @@ function sweep_accel_tc_sim()
                     'ilim',0.0,'maxlim',0.75,'ileak_ms',500,'rate_hz',100, ...
                     'speed_gate',0.5,'emulate_firmware_pure_p',true);
     tyreCfg = struct('mu_scale',1.00);
-    cleanup = onCleanup(@() sweep_cleanup(p, tcBase, tyreCfg)); %#ok<NASGU>
+    % The model's scopes are set to open on Run, which is right for a single run and
+    % wrong for a sweep: this loop runs the model ~40 times and you'd get ~240 scope
+    % windows. Shut them for the duration, restore on the way out.
+    scopes  = cellstr(find_system(mdl, 'BlockType','Scope'));
+    wasOpen = cell(size(scopes));
+    for i = 1:numel(scopes)
+        wasOpen{i} = get_param(scopes{i}, 'OpenAtSimulationStart');
+        set_param(scopes{i}, 'OpenAtSimulationStart', 'off');
+    end
+    cleanup = onCleanup(@() sweep_cleanup(p, tcBase, tyreCfg, scopes, wasOpen)); %#ok<NASGU>
     assignin('base','tyreCfg',tyreCfg);
 
     % A map is kp + clamp + torque ceiling, moved together. See the header.
@@ -151,8 +164,9 @@ function sweep_accel_tc_sim()
     writetable(struct2table(S), fullfile(here,'output','accel_tc_sweep.csv'));
     fprintf('\nSaved: output/accel_tc_sweep.csv + a tabbed figure (%d tabs)\n', ...
             numel(maps)+1);
-    fprintf(['REMINDER: absolute t75 here is unvalidated pending the tyre-size question ' ...
-             '(see header).\n']);
+    fprintf(['REMINDER: per-map rows use that map''s own torque ceiling (150/130 Nm), ' ...
+             'not the\n          123 Nm the car actually requests. Grip is borrowed off ' ...
+             'a different tyre\n          and runs ~4%% optimistic. See the header.\n']);
 end
 
 function [t75, R] = runsim(mdl, p, tc, G)
@@ -175,10 +189,15 @@ function [t75, R] = runsim(mdl, p, tc, G)
     if isempty(k), R.vtrap = NaN; else, R.vtrap = v(k); end
 end
 
-function sweep_cleanup(p, tcBase, tyreCfg)
-%SWEEP_CLEANUP  Restore baseline base-workspace state on any exit path.
+function sweep_cleanup(p, tcBase, tyreCfg, scopes, wasOpen)
+%SWEEP_CLEANUP  Restore baseline workspace state and scope settings on any exit path.
     assignin('base','p',p);
     assignin('base','tcCfg',tcBase);
     assignin('base','tyreCfg',tyreCfg);
     assignin('base','G',p.gear_current);
+    if nargin > 3
+        for i = 1:numel(scopes)
+            try, set_param(scopes{i}, 'OpenAtSimulationStart', wasOpen{i}); catch, end
+        end
+    end
 end

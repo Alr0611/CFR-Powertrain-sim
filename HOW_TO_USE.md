@@ -135,17 +135,37 @@ from. Change it there once and every script picks it up. After a change, run
 
 ---
 
-## Open question that affects a lot of numbers
+## Resolved 2026-08-11: the wheel radius was wrong, and that was the accel gap
 
-**Which tyre is actually on the car.** `p.r_wheel = 0.221` is a real measurement, but of
-the Hoosier 18.0x6.0-10. It's only our radius if that's what we run, and that's never
-been confirmed with a tape measure.
+`p.r_wheel` was 0.221 and is now **0.200**, measured by roll-out on the car.
 
-It matters because the log says 0.221 can't be right. Over the four standing starts the
-energy the car put into the road at that radius exceeds the energy the motor produced,
-which needs `eta_drivetrain > 1`. At 0.221 the implied eta is 1.07. Run
-`python tools/radius_from_energy_balance.py` to see it.
+0.221 was a real measurement, just of the wrong part. It's the TTC RE channel for the
+Hoosier 18.0x6.0-10. **The car is on a 16.** Inheriting a measurement of a tyre we don't
+run is how it survived three sessions.
 
-Gearing and torque are both confirmed good (G measured at 4.6133 against 4.6154 nominal,
-delivered torque 122-124 Nm flat against the 123 Nm the sim assumes), so the radius is
-what's left. Tape an unloaded rear tyre and that closes it.
+Three independent numbers agree:
+
+| | r_eff |
+|---|---|
+| Roll-out on the car, 2 revs = 99 in | **0.2001** |
+| Log energy balance at eta 0.794 | 0.1975 |
+| Firmware `TIRE_RADIUS_M` (nominal 16 in, fresh) | 0.2032 |
+
+What it fixed: 0-75 m at 4.61:1 was 4.988 s sim against 4.637 s measured, a +14% gap.
+Now it's **4.795 vs 4.637, +3.4%**. The sim thought each wheel revolution covered 11%
+more ground than it does.
+
+Two earlier conclusions died with it:
+
+- "The firmware radius is 8% under and biases every logged speed" was an artifact. 0.2032
+  is about right; the 1.6% is tyre wear, since our roll-out is on worn rubber.
+- The gear-ratio optimum moved from 5.80:1 to **5.20:1**.
+
+Note `r_eff` drifts with tread life. Re-run the roll-out on new tyres.
+
+### Still open: the tyre model is for the wrong tyre
+
+Round 9 ran drive/brake on the 18.0x6.0-10 **only**. The 16s have cornering data and
+nothing longitudinal. So the MF coefficients in `params_cfr26.m` are now marked DERIVED,
+not MEASURED: same maker, same compound, same rim, different casing. The load-sensitivity
+method and the PDX2 identifiability finding still hold, the absolute grip level does not.

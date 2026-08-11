@@ -67,8 +67,32 @@ function build_accel_tc_sweep_simulink()
     end
     add_line(mdl, 'Clock/1', 'Accel + TC plant (sweep)/1', 'autorouting','on');
 
-    add_block('simulink/Sinks/Scope', [mdl '/Slip scope'], 'Position',[470 300 540 340]);
-    add_line(mdl, 'Accel + TC plant (sweep)/4', 'Slip scope/1', 'autorouting','on');
+    % ---- scopes ----
+    % One per thing you actually watch when tuning TC, plus a combined one. Without
+    % these the model runs and shows you nothing, which is useless for tuning.
+    scopes = { ...
+        'Slip',            4, 'rear axle slip vs time'; ...
+        'TC reduction y',  5, 'fraction of torque the controller is removing'; ...
+        'Speed',           2, 'vehicle speed (m/s)'; ...
+        'Distance',        3, 'distance (m), 75 m is the number'; ...
+        'Torque cmd',      6, 'motor torque after TC (Nm)'};
+    for i = 1:size(scopes,1)
+        nm = [mdl '/' scopes{i,1}];
+        add_block('simulink/Sinks/Scope', nm, ...
+                  'Position',[470 300+55*i 540 340+55*i]);
+        set_param(nm, 'OpenAtSimulationStart','on');   % actually pop up when you hit Run
+        add_line(mdl, sprintf('Accel + TC plant (sweep)/%d', scopes{i,2}), ...
+                 [scopes{i,1} '/1'], 'autorouting','on');
+    end
+
+    % Combined scope: slip and TC reduction on one axis pair is how you see whether the
+    % controller is chasing the target or fighting it.
+    add_block('simulink/Sinks/Scope', [mdl '/TC overview'], ...
+              'Position',[640 300 710 340]);
+    set_param([mdl '/TC overview'], 'NumInputPorts','3', 'OpenAtSimulationStart','on');
+    add_line(mdl, 'Accel + TC plant (sweep)/4', 'TC overview/1', 'autorouting','on');
+    add_line(mdl, 'Accel + TC plant (sweep)/5', 'TC overview/2', 'autorouting','on');
+    add_line(mdl, 'Accel + TC plant (sweep)/6', 'TC overview/3', 'autorouting','on');
 
     % Put lib/ on the path whenever the model loads, so opening the .slx from the file
     % browser and hitting Run works without running START.m first.
