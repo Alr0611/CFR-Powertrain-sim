@@ -3,6 +3,11 @@
 A task-first cheat sheet: *"I want to know X"* → which script, and where to look.
 (For install/setup see [README.md](README.md).)
 
+**New to the sim, or explaining it to someone else?** Start with
+[docs/SIM_EXPLAINED.md](docs/SIM_EXPLAINED.md). Plain-language walkthrough of what the code
+calculates, where the numbers come from, and which ones aren't safe to quote yet.
+Full equations are in [EQUATIONS.md](EQUATIONS.md).
+
 ---
 
 ## Step 0 — open it (do this once per MATLAB session)

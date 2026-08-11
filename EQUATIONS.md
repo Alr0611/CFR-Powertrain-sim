@@ -191,17 +191,31 @@ dfz = (Fz − FNOMIN) / FNOMIN
 
 | Symbol | Params field | Meaning |
 |---|---|---|
-| `PDX1` | `p.tir.PDX1` = 2.1 | peak μ at nominal load |
-| `PDX2` | `p.tir.PDX2` = −0.40981 | how μ falls as you squash the tyre harder |
+| `PDX1` | `p.tir.PDX1` = 2.25161 | peak μ at nominal load (raw belt) |
+| `PDX2` | `p.tir.PDX2` = −0.08617 | how μ falls as you squash the tyre harder |
 | `FNOMIN` | `p.tir.FNOMIN` = 667 N | the load those numbers refer to |
 | `LMUX` | `p.tir.LMUX` = 0.65 | scaling: test-rig belt → real pavement |
 
-Works out to μ ≈ 1.37 at nominal load. Floored at 0.5 to guard degenerate extrapolation.
+Works out to μ ≈ 1.46 at nominal load. Floored at 0.5 to guard degenerate extrapolation.
 
-**Provenance warning:** Calspan never ran a *longitudinal* sweep on this tyre (ours was
-too small). The lateral numbers are real test data; **these forward-grip numbers are a
-well-dressed estimate.** See §10 for why the accel model's grip sensitivity is currently
-unverifiable.
+The full curve, not just the peak, is MF6.1 in `lib/tire_fx_mf.m` — that is what the TC
+sim calls. `tire_mu_x.m` is the peak-only shortcut used by `accel_model.m`.
+
+**Provenance warning — it is the wrong tyre.** These are fitted to real TTC Round 9
+drive/brake data, but for the **Hoosier 18.0x6.0-10**. The car runs a **Hoosier
+16x7.5-10**, which has cornering runs and *no drive/brake runs at all*. So the set is
+DERIVED, not measured, off a casing 1.5 in narrower and 2 in larger in diameter.
+Cornering data for both tyres puts our lateral grip at ≈ **0.96×** the donor's, so this
+set is mildly optimistic. See `tools/tyre_crosscheck_16x75.py`.
+
+**PDX2 was calibrated, not fitted.** A free fit returns PDX2 ≈ 0, i.e. "grip is flat with
+load", which is wrong. Pin it anywhere from 0 to −0.20 and RMS moves 3.7 N out of 85
+while PKX2 swings 6.3 → 25.4: it is unidentifiable in force-space. Measured at matched
+slip, μ falls 3–7% from 600 N to 1200 N with no model involved, so PDX2 is solved to
+reproduce that. See `tools/pdx2_identifiability.py`.
+
+**The high-slip tail is still not measured.** Data reaches |SL| ≤ 0.186; a standing start
+runs 5–7. Everything past 0.19 is extrapolated shape.
 
 ## 9. Acceleration — inertia-based ODE over motor speed
 
@@ -246,12 +260,22 @@ T_use   = min( T_peak(rpm)·η_drivetrain , F_tract·r·n/η_drivetrain )
 > 0–75 m is **unverified in both directions** — this is OPEN pending launch/TC data.
 > Left unfixed deliberately so no number moves until that data lands.
 
-**Also unmeasured — wheel radius.** `p.r_wheel` = 0.2286 m is the **free** radius; a
-loaded tyre squishes ~5% smaller and nobody has measured ours. `r` sets both rpm→speed
-and the tractive force arm, so ~5% on radius is ~5% on force — a bigger lever than the
-halfshaft angle. At 0.95×, 0–75 m goes 4.669 → 4.579 s, closing about a third of the
-0.27 s sim-vs-measured gap. `accel_model.m` prints this sensitivity; the value is not
-changed.
+**RESOLVED — wheel radius.** This section used to warn that `p.r_wheel` = 0.2286 m was
+unmeasured. It has since been measured on the car by roll-out and it is **0.200 m**: the
+car runs a 16 in tyre, not the 18 the repo assumed for three sessions. That single error
+was ~11% and accounted for essentially the whole sim-vs-measured accel gap.
+
+There are now **two** radii, because they are different physical quantities:
+
+| | value | used for |
+|---|---|---|
+| `p.r_wheel` | 0.2000 m | distance per radian: wheel speed → road speed, and zero slip |
+| `p.r_load` | 0.1901 m | the moment arm: tyre force acts at the contact patch |
+
+`r_load < r_wheel` always, because a loaded tyre rolls further per revolution than its
+squashed radius suggests — the tread band is basically inextensible and walks over its
+own flat spot. Using one number for both understates wheel force by 5.2% and cost ~0.10 s
+over 75 m. `accel_tc_core.m` uses both; `accel_model.m` still uses one.
 
 A simpler traction-limited point-mass version lives in `lib/accel_075m.m` (used by the
 gear study's quick sweep), and top speed marches the same force balance in
