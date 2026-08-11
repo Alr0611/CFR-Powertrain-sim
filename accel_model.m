@@ -206,7 +206,11 @@ function t = recovery_40_80(G, p)
     n=1/G; v=40/3.6; t=0; dt=0.005; a=0;
     while v < 80/3.6 && t < 15
         rpm = v/p.r_wheel*G*60/(2*pi);
-        F_wh = motor_peak_torque(min(rpm,p.redline),p)*G*p.eta_drivetrain/p.r_wheel;
+        % min(rpm,p.redline) REMOVED: it clamped the lookup, not the result, so this
+        % run kept pulling redline torque past redline. See lib/motor_peak_torque.m.
+        % At 4.61:1 redline is ~96.7 kph so this 40-80 kph run never reached it, but
+        % the bug was live for any shorter gearing.
+        F_wh = motor_peak_torque(rpm,p)*G*p.eta_drivetrain/p.r_wheel;
         Fdown = 0.5*p.rho_air*p.ClA*v^2;
         for it=1:3
             Fzr = p.m_car*p.g*p.rear_static + p.m_car*a*p.h_cg/p.L_wb + Fdown*p.rear_aero;

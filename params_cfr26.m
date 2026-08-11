@@ -40,17 +40,51 @@ p.eta_drivetrain = 0.794;   % Of the mechanical power the motor makes, ~79% reac
 
 %% ---- THE CAR ITSELF ----
 p.m_car   = 294;            % kg, car + driver, on actual scales. (MEASURED)
-p.r_wheel = 0.2286;         % m, wheel radius = 18" tire OD / 2.
-                            % Note: this is the tire just sitting there. A loaded
-                            % tire squishes ~5% smaller.
+p.r_wheel = 0.221;          % m, EFFECTIVE ROLLING radius. MEASURED, TTC Round 9
+                            % drive/brake runs 69/70/72/73, Hoosier 18.0x6.0-10 R20
+                            % (RawData: RunData_DriveBrake_Matlab_SI_Round9.zip).
+                            % Channel RE, median by vertical load:
+                            %    600-800 N  -> 0.2274      800-1000 N -> 0.2270
+                            %   1000-1400 N -> 0.2208
+                            % Loaded radius RL (the force lever arm) runs a little
+                            % smaller, 0.2152-0.2196 over the same loads. 0.221 sits in
+                            % the working band; the sim uses one radius for both the
+                            % force arm and the speed conversion, so this is a
+                            % compromise between RE and RL, not an exact either.
+                            %
+                            % HISTORY, so nobody redoes this: was 0.2286 (18" OD / 2,
+                            % UNLOADED). Briefly set to 0.204 from OptimumLap
+                            % CFR26.OLVeh + firmware TIRE_RADIUS_M 0.2032 -- BOTH OF
+                            % THOSE ARE TOO SMALL, the measured data above overrules
+                            % them. The firmware constant being ~8% under measured is a
+                            % real finding: it biases VCFRONT_vehicleSpeed and every
+                            % slip number derived from it. Flag it to the embedded team.
+                            %
+                            % VALID ONLY IF the car runs the 18.0x6.0-10. Round 9 also
+                            % tested Hoosier 16.0x6.0-10 and 16.0x7.5-10, which have NO
+                            % drive/brake runs. Confirm the tyre with a tape measure.
 p.g       = 9.81;           % If this changes we have bigger problems.
 p.rho_air = 1.225;          % air density at sea level-ish.
 
 %% ---- TIRE GRIP ----
-%  READ THIS ONE. Calspan never tested this tire for FORWARD grip -- our tire
-%  was too small. So the sideways numbers are real test data, but
-%  these forward-grip numbers are basically a well-dressed estimate.
-%  Works out to mu ~1.37.
+%  MEASURED now, superseding the derived set. This block used to say Calspan never tested
+%  this tire for forward grip. Not true any more: TTC Round 9 ran drive/brake sweeps on
+%  the Hoosier 18.0x6.0-10 R20 (runs 69/70/72/73) and tools/refit_mf_pdx2_constrained.py
+%  fits to them. 5467 samples, |SA| and |IA| under 0.5 deg, P = 71 +/- 3 kPa.
+%  R^2 0.99708, RMS 85.9 N against an |Fx| p95 of ~2650 N.
+%
+%  *** ONLY VALID IF WE RUN THE 18.0x6.0-10. *** Round 9 also tested the 16.0x6.0-10 and
+%  16.0x7.5-10 and neither has drive/brake runs, so on 16s this whole block reverts to
+%  estimate. UNCONFIRMED, needs a tape across an unloaded rear tyre. See HOW_TO_USE.md,
+%  the log energy balance says 0.221 can't be right.
+%
+%  *** HIGH-SLIP TAIL STILL NOT MEASURED. *** Sweep reaches |SL| <= 0.186, a standing
+%  start runs 5-7. Past 0.19 is extrapolated shape, and that's exactly what decides
+%  whether a spinning tyre recovers. Fitted peak is at SL 0.16-0.20 which IS inside the
+%  data (old fit peaked at 0.21-0.35, outside it).
+%
+%  PDX1/PDX2 are RAW BELT values, LMUX stays separate below, don't fold it in. Pressure
+%  terms PPX1..4 and camber PDX3 are not fitted.
 %
 %  WHERE THIS UNCERTAINTY DOES *NOT* SHOW UP: the 0-75 m accel time at the
 %  ratios we actually run. This file used to warn that "every accel time is a
@@ -68,10 +102,61 @@ p.rho_air = 1.225;          % air density at sea level-ish.
 %  +/-0.0003 s, all parameters ~+/-0.12 s, and a +0.40 s (+9%) bias against the
 %  one real launch (4.40 s), which needs ~+19% torque/power to close and so
 %  lives in the torque envelope or the measurement, not in grip.
-p.tir.PDX1   = 2.1;         % grip at normal load     (GUESS, see above)
-p.tir.PDX2   = -0.40981;    % how grip drops as you squash the tire harder (GUESS)
+p.tir.PDX1   =  2.25161;    % grip at normal load. MEASURED (was 2.1, derived).
+p.tir.PDX2   = -0.08617;    % how grip drops as you squash the tire harder. MEASURED, but
+                            % NOT by the curve fit. Read this before touching it.
+                            %
+                            % A free fit returns PDX2 ~ 0 ("grip is flat with load"),
+                            % which is wrong. PDX2 is unidentifiable in force-space: pin
+                            % it anywhere from 0 to -0.20, refit the other 13, and RMS
+                            % moves 3.7 N out of 85. Watch PKX2 swing 6.3 -> 25.4 over
+                            % that grid, that's the slip-stiffness terms soaking up the
+                            % load sensitivity. (tools/pdx2_identifiability.py)
+                            %
+                            % The raw samples do show grip falling with load. mu at
+                            % MATCHED SLIP, 600 N -> 1200 N, no fit and no peak-finding:
+                            %    SL 0.04-0.07  -4.9%     SL 0.10-0.14  -4.3%
+                            %    SL 0.07-0.10  -7.3%     SL 0.14-0.19  -3.4%
+                            % Negative in every band. (tools/mu_load_model_vs_data.py)
+                            %
+                            % So this is solved to match the measured peak-mu slope of
+                            % -0.1796 mu/kN instead of being fitted. Costs +0.9% RMS.
+                            % Works out to -5% peak mu over 600-1200 N. The old DERIVED
+                            % -0.40981 implied -25%, also not in the data.
+                            % Valid Fz 500-1300 N, extrapolated outside that.
 p.tir.FNOMIN = 667;         % N, the "normal load" the numbers above refer to
 p.tir.LMUX   = 0.65;        % fudge factor: test-rig belt -> real pavement
+% Shape of the mu-slip curve. Same fit, same samples as PDX1/PDX2 above (all 14
+% coefficients come out of one least-squares solve, so they are only meaningful as a
+% SET -- do not swap one in isolation). These replace two bare guesses that used to sit
+% in accel_model_tc.m (s_peak 0.12, C 1.65) and, before that, a DERIVED set read off
+% dt_bismillah/"16inx18in_R20 2 1.tir" whose longitudinal shape was itself assumed.
+p.tir.PCX1   =  1.17006;    % shape factor C   (was 1.5112 derived, 1.65 guessed)
+p.tir.PEX1   = -0.65042;    % curvature E, and its load dependence
+p.tir.PEX2   = -2.13543;
+p.tir.PEX3   =  1.33525;
+p.tir.PEX4   =  0.06485;    % drive/brake asymmetry, near zero in the fit
+p.tir.PKX1   = 45.97254;    % longitudinal slip stiffness at nominal load
+p.tir.PKX2   = 25.35124;    % HIGH, and it is the price of pinning PDX2. This term is the
+                            % one that was absorbing the load sensitivity; constraining
+                            % PDX2 pushes some of it back here. It is a fit artifact of a
+                            % 14-parameter model on a |SL| <= 0.19 sweep, not a measured
+                            % slip-stiffness property. Do not quote PKX2 on its own.
+p.tir.PKX3   = -0.70540;
+p.tir.PHX1   = -0.00016;    % horizontal shift
+p.tir.PHX2   = -0.00020;
+p.tir.PVX1   =  0.01683;    % vertical shift
+p.tir.PVX2   = -0.03129;
+p.tir.P_kPa  = 71.0;        % kPa, the pressure this set was fitted at. 0.71 bar =
+                            % 10.3 psi, matching the team's own reference plot
+                            % "FX vs SL @ 0 Camber & 10.3psi.png". Pressure terms
+                            % PPX1..4 are NOT fitted, so this set is only valid near
+                            % 71 kPa. Refit with tools/refit_mf_pdx2_constrained.py if
+                            % the car runs a different pressure.
+                            % UNCONFIRMED: the team's LATERAL reference plots are
+                            % labelled 8 psi (55 kPa), not 10.3. If the car actually runs
+                            % 8 psi this set is fitted at the wrong pressure. Needs a
+                            % gauge reading on a hot tyre to settle.
 
 %% ---- AERO ----
 %  Drag: our aero lead's current Cd (0.922) on the frontal area CFD implies.
@@ -203,4 +288,11 @@ p.rc.C1_c = [629.4704,653.2170,732.6093,516.2969,1.31e+03,707.6551,411.8151,13.8
 p.rc.C2_d = [2047.4,3107.3,3200.6,2650.9,3273,3599.5,3368.7,2972.5,2234.9,1.25e+03,0];
 p.rc.C2_c = [700.7608,2.574e+03,2.365e+03,2.09e+03,3.42e+03,2.54e+03,2.29e+03,1.93e+03,1.33e+04,6.06e+03,0];
 p.rc.Q    = p.Q_cell;
+
+% Driver torque ceiling the VC actually requests. MEASURED from today_test.csv:
+% at full throttle (apps>95, n=707) VCFRONT_torqueRequest pins to exactly 123.0 Nm
+% (p50 = p95). This matches NO compile-time TC map (100/130/150), which is the
+% evidence that maxTorqueNm was written to NVM. The motor can make 150; the car
+% never asks for it. Re-check this on any new log before reusing it.
+p.T_driver_max = 123.0;
 end

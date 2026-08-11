@@ -6,7 +6,11 @@ function v_top = top_speed(ratio, p)
     v_rpm_limit = (p.redline/ratio) * (2*pi/60) * p.r_wheel;
     v_top = 0;
     for v = 0:0.1:v_rpm_limit
-        rpm = v / p.r_wheel * ratio * 60/(2*pi);
+        % Round-trip through r_wheel and ratio can land a hair over redline on the last
+        % step. motor_peak_torque now returns 0 past redline, so without this the march
+        % would report zero force and stop one step early. Physically v_rpm_limit IS the
+        % redline speed, so clamping here is exact, not a fudge.
+        rpm = min(v / p.r_wheel * ratio * 60/(2*pi), p.redline);
         F_avail = motor_peak_torque(rpm, p) * ratio * p.eta_drivetrain / p.r_wheel;
         F_down  = 0.5*p.rho_air*p.ClA*v^2;
         F_need  = 0.5*p.rho_air*p.CdA*v^2 + p.Crr*(p.m_car*p.g + F_down);
