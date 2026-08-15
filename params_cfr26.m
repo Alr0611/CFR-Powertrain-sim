@@ -136,6 +136,24 @@ p.rho_air = 1.225;          % air density at sea level-ish.
 %  Our tyre grips about 4% LESS than the donor, so this set mildly OVERSTATES our grip.
 %  Small, and in the unsafe direction, so know about it. CAVEAT: that is a LATERAL ratio
 %  judging a LONGITUDINAL set. It is an anchor, not a measurement.
+%  Reproduced independently at 0.956 by tools/compare_teammate_tir.py using all rim
+%  widths, so the ~4% is robust, not an artifact of which runs got picked.
+%  NOT APPLIED. Applying it would mean PDX1 2.25161 -> 2.153 and nominal mu 1.464 ->
+%  1.400. Left off because it stacks a lateral inference on top of a borrowed set, and
+%  because grip is not the binding constraint at our ratio anyway (the car is torque
+%  limited). Revisit if anyone runs the 150 Nm map, where grip starts to bind.
+%
+%  A TEAMMATE HAS A LATERAL FIT FOR OUR ACTUAL TYRE:
+%  Hoosier_16x7_5_10_R20_MF52.tir, MF5.2, FY0/MZ0/MX fitted, all Fx coefficients zero.
+%  It does NOT give us longitudinal data, but it is validated: checked against raw TTC
+%  cornering for our tyre it is within 1.3% at every load bin. Two things taken from it:
+%    - its DIMENSION block says UNLOADED_RADIUS 0.203, WIDTH 0.1905, RIM_RADIUS 0.127.
+%      Fourth independent confirmation of the 16 in tyre and r_eff ~0.20.
+%    - PDY1 2.5378, PDY2 -0.12884 at FNOMIN 700 N. Normalised that is -0.0508 per dfz
+%      against our longitudinal -0.0383. Both negative, his stronger, which is the normal
+%      lateral-vs-longitudinal relationship. So our PDX2 is CONSISTENT with our own
+%      tyre's measured behaviour, which it had no way of being before.
+%  Use his file for anything cornering. It is the right tyre and ours is not.
 %
 %  Survives the tyre-size change: the load-sensitivity METHOD, and the finding that a
 %  free fit cannot identify PDX2 (see below). Those are about fitting, not casing. The
