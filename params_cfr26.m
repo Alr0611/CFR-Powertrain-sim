@@ -138,10 +138,18 @@ p.rho_air = 1.225;          % air density at sea level-ish.
 %  judging a LONGITUDINAL set. It is an anchor, not a measurement.
 %  Reproduced independently at 0.956 by tools/compare_teammate_tir.py using all rim
 %  widths, so the ~4% is robust, not an artifact of which runs got picked.
-%  NOT APPLIED. Applying it would mean PDX1 2.25161 -> 2.153 and nominal mu 1.464 ->
-%  1.400. Left off because it stacks a lateral inference on top of a borrowed set, and
-%  because grip is not the binding constraint at our ratio anyway (the car is torque
-%  limited). Revisit if anyone runs the 150 Nm map, where grip starts to bind.
+%  NOT APPLIED. Applying it would mean PDX1 2.25161 -> 2.153, nominal mu 1.464 -> 1.400.
+%  Left off because it stacks a lateral inference on top of an already-borrowed set.
+%
+%  WHAT IT DOES AND DOES NOT MOVE, measured not assumed:
+%    accel time      0-75 m moves 0.001-0.011 s. Nothing.
+%    gear ratio      optimum stays 5.20:1. Nothing.
+%    TC ENGAGEMENT   FLIPS IT. At 150 Nm peak TC cut goes 0.00 -> 0.52. At 123 Nm on the
+%                    test day's derived grip (mu_scale 0.853) it goes 0.00 -> 0.54.
+%  So the "TC never engages" result is KNIFE-EDGE. A 4% grip change, which is exactly the
+%  size of the known transfer bias, flips it. Do not treat "TC does nothing" as a settled
+%  finding. The robust part is only the direction: more torque or less grip -> TC works.
+%  Anyone doing TC work should run it BOTH ways and report the pair.
 %
 %  A TEAMMATE HAS A LATERAL FIT FOR OUR ACTUAL TYRE:
 %  Hoosier_16x7_5_10_R20_MF52.tir, MF5.2, FY0/MZ0/MX fitted, all Fx coefficients zero.

@@ -258,11 +258,27 @@ lot, so about 0.85x the clean test data). At that grip:
 | 130 Nm | almost nothing, 5% |
 | 150 Nm | saturates its clamp, 75% |
 
-At 123 Nm on that surface the car is **torque limited, not traction limited**. There is
+At 123 Nm on that surface the car looks **torque limited, not traction limited**. There's
 nothing for TC to cut. Raise the ceiling to 150 and TC immediately becomes essential.
 
-So the honest statement: TC is insurance that isn't currently being called on. If anyone
-enables the 150 Nm map it stops being optional.
+### But don't build on "TC does nothing", it's knife-edge
+
+Our grip number has a known ~4% bias, because the coefficients come from a different
+tyre. If you apply that correction, TC engagement flips:
+
+| | peak TC cut, as shipped | with the 4% grip correction |
+|---|---|---|
+| 123 Nm, clean grip | 0% | 0% |
+| **150 Nm, clean grip** | **0%** | **52%** |
+| **123 Nm, test day grip** | **0%** | **54%** |
+
+Same 4% barely moves accel time (0.001-0.011 s) and doesn't move the gear ratio optimum
+at all. But it completely changes whether TC does anything.
+
+So the safe statement is only the **direction**: more torque or less grip means TC starts
+working, and at 150 Nm it's needed under any assumption. "TC does nothing at 123 Nm" is
+sitting on a threshold and shouldn't be quoted as settled. Anyone doing TC work should run
+it both ways and report the pair.
 
 ### The 7.58 slip number that scared everyone
 
@@ -332,7 +348,8 @@ If someone asks for one of these, give them the caveat with it.
 | The four mechanical efficiencies | GUESS | Memo assumptions, none dyno'd or coastdown tested |
 | CV joint loss coefficient | GUESS | Back-fitted to the memo's own assumed points, so it's circular |
 | Live TC gains | UNKNOWN | NVM was written, every gain in the repo is a compile-time default |
-| TC gain sweep results | VOID | TC never engages on this data, so the sweep is flat and says nothing |
+| TC gain sweep results | VOID | TC doesn't engage at 123 Nm, so the sweep is flat and says nothing |
+| "TC isn't needed at 123 Nm" | SHAKY | Flips with a 4% grip change, which is the size of our known bias |
 
 **Safe to quote:** car mass, gear ratio, both wheel radii, motor torque actually delivered,
 pack-to-shaft efficiency, and the fact that grip falls with load. All measured on our car
