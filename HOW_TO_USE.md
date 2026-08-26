@@ -102,9 +102,10 @@ There are three. They do different jobs, don't mix them up.
 > path. Run `START.m`, or `addpath('lib')` from the repo folder. `accel_tc_sweep_sim.slx`
 > fixes its own path on load; the other two don't.
 
-> **Don't quote an absolute 0-75 m from any of these yet.** The logged accel runs don't
-> reconcile with `p.r_wheel = 0.221` (see the tyre-size note at the bottom). Relative
-> comparisons are fine, absolutes carry a ~10% scale error.
+> **Absolute 0-75 m is now reasonable.** The radius is settled (`p.r_wheel = 0.200`) and
+> at 4.61:1 with the car's real 123 Nm ceiling the sim gives 4.70 s against 4.64 s
+> measured. The remaining caveat is grip: the Fx set is borrowed off a different tyre and
+> runs ~4% optimistic. Relative comparisons cancel most of that.
 
 ---
 
