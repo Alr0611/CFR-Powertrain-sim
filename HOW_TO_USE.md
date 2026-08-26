@@ -34,6 +34,7 @@ Everything a script produces (figures + CSVs) lands in the **`output/`** folder.
 | **Are the numbers trustworthy** | `verify_math` | 50 independent checks vs the source documents — all should say `[PASS]` |
 | **How much is traction control worth, and at what gains** | `accel_model_tc` | One run + gain sweep + per-map sweeps, 4-tab figure |
 | **Sweep TC gains and gear ratio together, per torque map** | `sweep_accel_tc_sim` | One page per map (150 Nm, 130 Nm) + a comparison page |
+| **Where the motor is good vs where we actually run it** | `peak_operating_point` | Efficiency map, torque/power envelope, real operating points, and a ratio trade |
 | Endurance driveline torque spectrum | `fatigue_spectrum` | Load spectrum for fatigue |
 | Accel driveline torque spectrum (the fatigue case) | `accel_fatigue` | Launch load spectrum |
 | Braking / no-regen energy check | `brake_analysis` | Brake heat + energy lost with no regen |
