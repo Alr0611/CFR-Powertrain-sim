@@ -498,3 +498,58 @@ its outer link plates stand proud of the sprocket, so the true swept envelope is
 OD. Getting that exactly needs the **520 chain plate height, which is UNKNOWN** (not in any sheet, and the
 chain is not in the STEP files I have). Tell the chassis lead the OD numbers are the sprocket only and to
 carry a clearance allowance on top, or get the plate height off the chain datasheet and it becomes exact.
+
+## 9. The chain, measured off `chain.STEP`
+
+This closes the last envelope unknown. All MEASURED-CAD off part `DT-P2131_6261K244`.
+
+| Feature | Measured | Note |
+|---|---|---|
+| Pitch | **15.8750 mm** | roller centres at Z = +/-7.938, so 15.875 apart. Confirms the sheet exactly. |
+| Roller diameter | **10.1600 mm** | textbook 520. Confirms the chain number from the hardware, not just the sheet. |
+| Plate height | **14.5034 mm** | plate end arcs are R7.2517 centred on the pin axis |
+| Plate half height | **7.2517 mm** | this is the number that matters, see below |
+| Outer plate span | 13.589 mm | plate outer faces. Pin heads or a master link may add, check before trusting it laterally. |
+
+### 9.1 The envelope number the chassis lead actually needs
+
+The pin centres sit **on the pitch circle**, and the plate stands 7.2517 mm proud of them. So:
+
+```
+chain envelope radius = driven pitch radius + 7.2517 mm
+```
+That runs about **2.9 mm outside the sprocket OD** across the whole sweep, because the sprocket tooth tip
+sits slightly inside where the chain plate reaches. So quoting sprocket OD alone under-calls the envelope
+by ~3 mm per side. Not huge, but it is the difference between a clearance check passing and fouling.
+
+| Driven | Ratio | Pitch dia (mm) | Sprocket OD (mm) | OD radius (mm) | **Chain envelope radius (mm)** |
+|---|---|---|---|---|---|
+| 26T | 4.0000 | 131.70 | 140.27 | 70.13 | **73.10** |
+| 27T | 4.1538 | 136.74 | 145.34 | 72.67 | **75.62** |
+| 28T | 4.3077 <- likely | 141.79 | 150.42 | 75.21 | **78.14** |
+| 29T | 4.4615 <- likely | 146.83 | 155.49 | 77.75 | **80.67** |
+| 30T **(current)** | 4.6154 <- likely | 151.87 | 160.57 | 80.28 | **83.19** |
+| 31T | 4.7692 <- likely | 156.92 | 165.64 | 82.82 | **85.71** |
+| 32T | 4.9231 | 161.96 | 170.71 | 85.35 | **88.23** |
+| 33T | 5.0769 | 167.01 | 175.78 | 87.89 | **90.76** |
+| 34T | 5.2308 | 172.05 | 180.84 | 90.42 | **93.28** |
+
+**Hand the chassis lead this:**
+
+| Case | Driven | Chain envelope radius (mm) | Envelope diameter (mm) |
+|---|---|---|---|
+| Likely, ratio 4.2 to 4.8 | 28T to 31T | 78.1 to 85.7 | 156.3 to 171.4 |
+| Full sweep, 4.00 to 5.20 | 26T to 34T | 73.1 to 93.3 | 146.2 to 186.6 |
+| Current build | 30T | 83.2 | 166.4 |
+
+**The ask: design to 93.3 mm radius (186.6 mm diameter)** and the whole 4.00 to 5.20 sweep fits with the
+chain accounted for. That is **+10.1 mm on radius over what is fitted today**. If that is too much, the
+fallback is 31T at 85.7 mm radius, +2.5 mm over today, which still covers all of 4.2 to 4.8.
+
+Growth is **+2.522 mm of envelope radius per tooth**, so the chassis lead can price any target themselves.
+
+### 9.2 What is left
+
+Only one thing now: **how much radius is actually available** around the diff sprocket before you hit
+structure. That is a chassis answer, not a drivetrain one. Put it in the orange cell on the Sprocket Calc
+tab and the Fit check column resolves for all nine configs plus anything you type into the playground.

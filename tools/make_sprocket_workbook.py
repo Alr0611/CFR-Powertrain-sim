@@ -46,174 +46,218 @@ def banner(ws, row, text, span):
 # ============================ SHEET 1: CALC ============================
 ws = wb.active
 ws.title = "Sprocket Calc"
-widths(ws, {"A": 30, "B": 12, "C": 13, "D": 13, "E": 13, "F": 13,
-            "G": 11, "H": 12, "I": 17, "J": 18, "K": 15, "L": 34})
+COLW = {"A": 15, "B": 13, "C": 11, "D": 11, "E": 14, "F": 11, "G": 11, "H": 12,
+        "I": 11, "J": 11, "K": 10, "L": 11, "M": 11, "N": 10, "O": 14, "P": 19, "Q": 34}
+widths(ws, COLW)
+NC = 17  # columns A..Q
 
-banner(ws, 1, "CFR27 FINAL DRIVE SPROCKET STUDY   |   chain geometry per Mott Ch.7", 12)
-n = ws.cell(2, 1, "Yellow = inputs, type in them. Orange = UNKNOWN, must be measured before the fit check means "
-                  "anything. Green row = what is on the car now. Driver stays 13T, only the driven sprocket changes.")
+banner(ws, 1, "CFR27 FINAL DRIVE SPROCKET STUDY   |   chain geometry per Mott Ch.7", NC)
+n = ws.cell(2, 1, "Yellow = type in it. Orange = still unknown, must be measured. Green = what is on the car "
+                  "now. The top table keeps the driver SET at 13T because it sits on a 6-lobe spline and is a "
+                  "bought part. The playground at the bottom lets you move BOTH sprockets.")
 n.font = IT
 n.alignment = WRAP
-ws.merge_cells("A2:L2")
-ws.row_dimensions[2].height = 28
+ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=NC)
+ws.row_dimensions[2].height = 30
 
-banner(ws, 4, "FIXED INPUTS", 12)
+# ------------------------------- inputs -------------------------------
+banner(ws, 4, "FIXED INPUTS", NC)
 inputs = [
-    ("Chain number", 520, "", "from-SHEET", "KHK Sheet1!B11 / Euro Sheet1!B11"),
-    ("Chain pitch P", 0.625, "in", "from-SHEET", "Sprocket Gearing and Forces!C9"),
-    ("Chain pitch P", 15.875, "mm", "from-SHEET", "Sprocket Gearing and Forces!C11"),
-    ("Driver teeth N1", 13, "T", "from-SHEET", "Sprocket...!M8   KEEP THIS, do not sweep it"),
+    ("Chain number", 520, "", "MEASURED-CAD", "chain.STEP, roller dia 10.1600 and pitch 15.8750 both measured"),
+    ("Chain pitch P", 15.875, "mm", "MEASURED-CAD", "chain.STEP, roller centres 15.8750 apart"),
+    ("Chain roller dia", 10.160, "mm", "MEASURED-CAD", "chain.STEP DT-P2131_6261K244"),
+    ("Chain plate half height", 7.2517, "mm", "MEASURED-CAD", "plate end arc R, how far the chain stands proud of the pitch circle"),
+    ("Driver teeth N1 (SET)", 13, "T", "MEASURED-CAD", "DT-P2120.STEP, OD 73.9324 = Mott 13T exactly. 6-lobe spline, bought part."),
     ("Gearbox ratio", 2.000, "", "from-SHEET", "15:30, Gear Design!D15/D16/D17"),
     ("Motor peak torque", 150, "Nm", "OWNER", "Emrax 208"),
     ("Motor transient torque", 170, "Nm", "OWNER", "steps up to 160-170 in enduro/accel"),
     ("Motor peak power", 68, "kW", "OWNER", "Emrax 208"),
-    ("Max motor speed", 6500, "rpm", "from-SHEET", "Sprocket...!M21"),
-    ("Chain avg tensile", 27.134, "kN", "DATASHEET", "Mott T7-12 no.50 = 6100 lb, stand-in for 520"),
+    ("Chain avg tensile", 27.134, "kN", "DATASHEET", "Mott T7-12 no.50 = 6100 lb, conservative stand-in for 520"),
     ("Service factor", 1.3, "", "DATASHEET", "Mott T7-17, electric motor + moderate shock"),
     ("Min wrap angle", 120, "deg", "DATASHEET", "Mott guidance, flag below this"),
 ]
 r = 5
 for lbl, val, unit, tag, src in inputs:
     ws.cell(r, 1, lbl).font = B
-    c = ws.cell(r, 2, val)
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
+    c = ws.cell(r, 3, val)
     c.fill = INP
     c.border = BOX
     c.alignment = CTR
-    ws.cell(r, 3, unit).alignment = CTR
-    ws.cell(r, 4, tag).font = IT
-    ws.cell(r, 5, src).font = IT
-    ws.merge_cells(start_row=r, start_column=5, end_row=r, end_column=12)
+    ws.cell(r, 4, unit).alignment = CTR
+    ws.cell(r, 5, tag).font = IT
+    ws.cell(r, 6, src).font = IT
+    ws.merge_cells(start_row=r, start_column=6, end_row=r, end_column=NC)
     r += 1
 
-P, N1, GB = "$B$7", "$B$8", "$B$9"
-TPK, TTR, PWR = "$B$10", "$B$11", "$B$12"
-TENS, SF, WMIN = "$B$14", "$B$15", "$B$16"
+P = "$C$6"
+ROLL = "$C$7"
+PH = "$C$8"
+N1 = "$C$9"
+GB = "$C$10"
+TPK, TTR, PWR = "$C$11", "$C$12", "$C$13"
+TENS, SF, WMIN = "$C$14", "$C$15", "$C$16"
 
 r += 1
-banner(ws, r, "MEASURED / STILL TO MEASURE", 12)
+banner(ws, r, "MEASURED / STILL TO MEASURE", NC)
 mr = r + 1
 for lbl, val, note in [
     ("Centre distance C", 152.08,
-     "MEASURED-CAD, SolidWorks Measure, 13T centre to diff sprocket centre. Confirm on the car."),
-    ("Radial clearance available", None,
-     "STILL UNKNOWN. From the 30T outer edge to the nearest hard point (chassis rail / floor / upright)."),
+     "MEASURED-CAD, SolidWorks Measure, 13T centre to diff sprocket centre. Confirm once on the car."),
+    ("Max allowed envelope radius", None,
+     "STILL UNKNOWN. Ask the chassis lead: how much radius is there around the diff sprocket before you hit "
+     "structure? The Fit check below stays blank until this is filled in."),
 ]:
     ws.cell(mr, 1, lbl).font = B
-    c = ws.cell(mr, 2, val)
+    ws.merge_cells(start_row=mr, start_column=1, end_row=mr, end_column=2)
+    c = ws.cell(mr, 3, val)
     c.fill = INP if val is not None else UNK
     c.border = BOX
     c.alignment = CTR
-    ws.cell(mr, 3, "mm").alignment = CTR
-    ws.cell(mr, 4, note).font = IT
-    ws.merge_cells(start_row=mr, start_column=4, end_row=mr, end_column=12)
+    ws.cell(mr, 4, "mm").alignment = CTR
+    ws.cell(mr, 5, note).font = IT
+    ws.cell(mr, 5).alignment = WRAP
+    ws.merge_cells(start_row=mr, start_column=5, end_row=mr, end_column=NC)
     mr += 1
-C, CLR = "$B$" + str(r + 1), "$B$" + str(r + 2)
+C = "$C$" + str(r + 1)
+ENVMAX = "$C$" + str(r + 2)
+ws.row_dimensions[r + 2].height = 26
 
-# ---------------------------- config table ----------------------------
-tr = mr + 1
-banner(ws, tr, "CONFIGS   |   driven sprocket sweep, 26T to 34T. Last row is yours to type into.", 12)
-hr = tr + 1
-heads = ["Driven teeth", "Total ratio", "Pitch dia D2 (mm)", "Outside dia OD2 (mm)",
-         "Radius growth vs 30T (mm)", "Chain length (pitches)", "Pitches vs 30T",
-         "Wrap on 13T (deg)", "Wrap check", "Fit check", "Chain parity", "VERDICT"]
-for i, h in enumerate(heads, 1):
-    c = ws.cell(hr, i, h)
-    c.font = WF
-    c.fill = HDR
-    c.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
-    c.border = BOX
-ws.row_dimensions[hr].height = 46
-
-D30 = "(%s/SIN(PI()/30))" % P
-D1F = "(%s/SIN(PI()/%s))" % (P, N1)
-first = hr + 1
-teeth = list(range(26, 35))
+HEADS = ["Driver teeth", "Driven teeth", "Total ratio", "Driver pitch dia (mm)", "Driven pitch dia (mm)",
+         "Driven OD (mm)", "Driven OD radius (mm)", "Chain envelope radius (mm)", "Wrap on driver (deg)",
+         "Chain length (pitches)", "Even count", "C for even (mm)", "Axle move (mm)",
+         "Wrap check", "Fit check", "Offset link?", "VERDICT"]
 
 
-def fill_row(rr, acell, guard):
-    """guard: extra blank-check prefix for the custom row."""
-    g = guard
-    ws.cell(rr, 2, "=IF(%s\"\",\"\",%s*%s/%s)" % (g, GB, acell, N1))
-    ws.cell(rr, 3, "=IF(%s\"\",\"\",%s/SIN(PI()/%s))" % (g, P, acell))
-    ws.cell(rr, 4, "=IF(%s\"\",\"\",%s*(0.6+1/TAN(PI()/%s)))" % (g, P, acell))
-    ws.cell(rr, 5, "=IF(%s\"\",\"\",(C%d-%s)/2)" % (g, rr, D30))
-    ws.cell(rr, 6, "=IF(OR(%s\"\",%s=\"\"),\"NEED C\",2*%s/%s+(%s+%s)/2+((%s-%s)/(2*PI()))^2*%s/%s)"
-            % (g, C, C, P, N1, acell, acell, N1, P, C))
-    ws.cell(rr, 7, "=IF(%s\"\",\"\",(%s-30)/2)" % (g, acell))
-    ws.cell(rr, 8, "=IF(OR(%s\"\",%s=\"\"),\"NEED C\",180-2*DEGREES(ASIN(MIN(1,(C%d-%s)/(2*%s)))))"
-            % (g, C, rr, D1F, C))
-    ws.cell(rr, 9, "=IF(OR(%s\"\",%s=\"\"),\"NEED C\",IF(H%d>=%s,\"PASS\",\"FAIL\"))" % (g, C, rr, WMIN))
-    ws.cell(rr, 10, "=IF(OR(%s\"\",%s=\"\"),\"NEED CLEARANCE\",IF(E%d<=%s,\"PASS\",\"FAIL\"))" % (g, CLR, rr, CLR))
-    ws.cell(rr, 11, "=IF(%s\"\",\"\",IF(MOD(%s,2)=0,\"OK even\",\"OFFSET LINK\"))" % (g, acell))
-    ws.cell(rr, 12, "=IF(%s\"\",\"type a tooth count in %s\",IF(OR(%s=\"\",%s=\"\"),"
-                    "\"UNKNOWN - measure C and clearance\",IF(OR(I%d=\"FAIL\",J%d=\"FAIL\"),\"FAIL\","
-                    "IF(K%d=\"OFFSET LINK\",\"PASS (needs offset link)\",\"PASS\"))))"
-            % (g, acell, C, CLR, rr, rr, rr))
-    for cc in range(1, 13):
+def header_row(hr):
+    for i, h in enumerate(HEADS, 1):
+        c = ws.cell(hr, i, h)
+        c.font = WF
+        c.fill = HDR
+        c.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
+        c.border = BOX
+    ws.row_dimensions[hr].height = 52
+
+
+def calc_row(rr, drv, dvn):
+    """drv/dvn are cell refs (e.g. 'A24'). Writes columns C..Q."""
+    g = "OR(%s=\"\",%s=\"\")" % (drv, dvn)          # blank guard
+    Dd = "(%s/SIN(PI()/%s))" % (P, drv)
+    DD = "(%s/SIN(PI()/%s))" % (P, dvn)
+    # quadratic for C at an even pitch count: a*C^2 + b*C + c = 0
+    aq = "(2/%s)" % P
+    bq = "((%s+%s)/2-K%d)" % (drv, dvn, rr)
+    cq = "(((%s-%s)/(2*PI()))^2*%s)" % (dvn, drv, P)
+    ws.cell(rr, 3, "=IF(%s,\"\",%s*%s/%s)" % (g, GB, dvn, drv))
+    ws.cell(rr, 4, "=IF(%s,\"\",%s)" % (g, Dd))
+    ws.cell(rr, 5, "=IF(%s,\"\",%s)" % (g, DD))
+    ws.cell(rr, 6, "=IF(%s,\"\",%s*(0.6+1/TAN(PI()/%s)))" % (g, P, dvn))
+    ws.cell(rr, 7, "=IF(%s,\"\",F%d/2)" % (g, rr))
+    ws.cell(rr, 8, "=IF(%s,\"\",E%d/2+%s)" % (g, rr, PH))
+    ws.cell(rr, 9, "=IF(%s,\"\",180-2*DEGREES(ASIN(MIN(1,(E%d-D%d)/(2*%s)))))" % (g, rr, rr, C))
+    ws.cell(rr, 10, "=IF(%s,\"\",2*%s/%s+(%s+%s)/2+((%s-%s)/(2*PI()))^2*%s/%s)"
+            % (g, C, P, drv, dvn, dvn, drv, P, C))
+    ws.cell(rr, 11, "=IF(%s,\"\",2*ROUND(J%d/2,0))" % (g, rr))
+    ws.cell(rr, 12, "=IF(%s,\"\",(-%s+SQRT(%s^2-4*%s*%s))/(2*%s))" % (g, bq, bq, aq, cq, aq))
+    ws.cell(rr, 13, "=IF(%s,\"\",L%d-%s)" % (g, rr, C))
+    ws.cell(rr, 14, "=IF(%s,\"\",IF(I%d>=%s,\"PASS\",\"FAIL\"))" % (g, rr, WMIN))
+    ws.cell(rr, 15, "=IF(%s,\"\",IF(%s=\"\",\"NEED ENVELOPE\",IF(H%d<=%s,\"PASS\",\"FAIL\")))"
+            % (g, ENVMAX, rr, ENVMAX))
+    # odd alternative: nearest odd pitch count, and whether it is meaningfully closer
+    ws.cell(rr, 16, "=IF(%s,\"\",IF(ABS(J%d-(2*ROUND((J%d-1)/2,0)+1))<ABS(J%d-K%d)-0.15,"
+                    "\"offset link is closer\",\"no, use even\"))" % (g, rr, rr, rr, rr))
+    ws.cell(rr, 17, "=IF(%s,\"type both tooth counts\",IF(N%d=\"FAIL\",\"FAIL - wrap too low\","
+                    "IF(O%d=\"FAIL\",\"FAIL - hits structure\",IF(O%d=\"NEED ENVELOPE\","
+                    "\"ratio \"&TEXT(C%d,\"0.000\")&\", need envelope limit\","
+                    "\"PASS - ratio \"&TEXT(C%d,\"0.000\")&\", move axle \"&TEXT(M%d,\"0.00\")&\" mm\"))))"
+            % (g, rr, rr, rr, rr, rr, rr))
+    for cc in range(1, NC + 1):
         ws.cell(rr, cc).border = BOX
         ws.cell(rr, cc).alignment = CTR
-    ws.cell(rr, 2).number_format = "0.0000"
-    for cc in (3, 4, 5, 6, 8):
+    ws.cell(rr, 3).number_format = "0.0000"
+    for cc in (4, 5, 6, 7, 8, 9, 10, 12, 13):
         ws.cell(rr, cc).number_format = "0.00"
 
 
+def paint(first_row, last_row):
+    rng = "N%d:Q%d" % (first_row, last_row)
+    for txt, bg, fg in [("FAIL", "FFC7CE", "9C0006"), ("offset link", "FFEB9C", "9C6500"),
+                        ("NEED", "FCE4D6", "974706"), ("need envelope", "FCE4D6", "974706"),
+                        ("PASS", "C6EFCE", "006100")]:
+        ws.conditional_formatting.add(rng, FormulaRule(
+            formula=['ISNUMBER(SEARCH("%s",N%d))' % (txt, first_row)],
+            fill=PatternFill("solid", fgColor=bg), font=Font(color=fg, bold=True)))
+
+
+# ----------------------- table 1: driver SET at 13T -----------------------
+tr = mr + 1
+banner(ws, tr, "TABLE 1   |   DRIVER SET AT 13T. Sweep the driven sprocket only. This is the real buildable set.", NC)
+hr = tr + 1
+header_row(hr)
+first = hr + 1
+teeth = list(range(26, 35))
 for i, N in enumerate(teeth):
     rr = first + i
-    ws.cell(rr, 1, N)
-    fill_row(rr, "A%d" % rr, "A%d=" % rr)
+    ws.cell(rr, 1, "=%s" % N1).number_format = "0"
+    ws.cell(rr, 2, N)
+    calc_row(rr, "A%d" % rr, "B%d" % rr)
+    ws.cell(rr, 1).fill = SUB
     if N == 30:
-        for cc in range(1, 13):
+        for cc in range(1, NC + 1):
             ws.cell(rr, cc).fill = CUR
-        ws.cell(rr, 1).font = B
-        ws.cell(rr, 1, 30)
+last1 = first + len(teeth) - 1
+paint(first, last1)
 
-lbl_row = first + len(teeth)
-c = ws.cell(lbl_row, 1, "TYPE YOUR OWN TOOTH COUNT IN THE YELLOW CELL BELOW  ->")
-c.font = B
-c.fill = SUB
-ws.merge_cells(start_row=lbl_row, start_column=1, end_row=lbl_row, end_column=12)
+# --------------------------- table 2: playground ---------------------------
+pr = last1 + 2
+banner(ws, pr, "TABLE 2   |   PLAYGROUND. Type ANY driver and driven in the yellow cells. Both are free here.", NC)
+n = ws.cell(pr + 1, 1, "Every column recalculates. Read the VERDICT column on the right. Reminder before you get "
+                       "attached to a non-13T driver: it has to be a bought sprocket with the exact 6-lobe "
+                       "21.0 / 25.0 / 5.0 spline bore, so check the bore before you check the ratio.")
+n.font = IT
+n.alignment = WRAP
+ws.merge_cells(start_row=pr + 1, start_column=1, end_row=pr + 1, end_column=NC)
+ws.row_dimensions[pr + 1].height = 28
+hr2 = pr + 2
+header_row(hr2)
+pfirst = hr2 + 1
+seed = [(13, 28), (13, 31), (12, 29), (14, 32), (13, 34), (15, 30), (None, None), (None, None)]
+for i, (dv, dn) in enumerate(seed):
+    rr = pfirst + i
+    ws.cell(rr, 1, dv).fill = INP
+    ws.cell(rr, 2, dn).fill = INP
+    calc_row(rr, "A%d" % rr, "B%d" % rr)
+    ws.cell(rr, 1).fill = INP
+    ws.cell(rr, 2).fill = INP
+plast = pfirst + len(seed) - 1
+paint(pfirst, plast)
 
-cr = lbl_row + 1
-ws.cell(cr, 1, 31).fill = INP
-fill_row(cr, "A%d" % cr, "A%d=" % cr)
-ws.cell(cr, 1).border = BOX
-ws.cell(cr, 1).alignment = CTR
-
-fn = cr + 1
-c = ws.cell(fn, 1, "Chain length must come out to an EVEN whole number of pitches. The column above gives the raw "
-                   "value, round it and take up the difference on the tensioner. Even driven counts shift by a whole "
-                   "pitch from the current 30T so they keep the same parity. Odd counts land on a half pitch, which "
-                   "means an offset (half) link or pulling C in about 2 mm. Offset links are the weakest part of a "
-                   "chain, so avoid them if an even sprocket gets you the same ratio band.")
+fn = plast + 1
+c = ws.cell(fn, 1, "Chain length must be an EVEN whole number of pitches. Column K is the nearest even count, L "
+                   "is the centre distance that lands exactly on it, and M is how far the diff has to move from "
+                   "the 152.08 it sits at today. If M is bigger than your tensioner travel, either take the next "
+                   "even count or use the offset link the P column suggests. Offset links are the weakest part "
+                   "of a chain, so prefer moving the axle when you can.")
 c.font = IT
 c.alignment = WRAP
-ws.merge_cells(start_row=fn, start_column=1, end_row=fn + 2, end_column=12)
+ws.merge_cells(start_row=fn, start_column=1, end_row=fn + 2, end_column=NC)
 
-rng = "I%d:L%d" % (first, cr)
-for txt, bg, fg in [("FAIL", "FFC7CE", "9C0006"), ("OFFSET", "FFEB9C", "9C6500"),
-                    ("NEED", "FCE4D6", "974706"), ("UNKNOWN", "FCE4D6", "974706"),
-                    ("PASS", "C6EFCE", "006100")]:
-    ws.conditional_formatting.add(rng, FormulaRule(
-        formula=['ISNUMBER(SEARCH("%s",I%d))' % (txt, first)],
-        fill=PatternFill("solid", fgColor=bg), font=Font(color=fg, bold=True)))
-ws.freeze_panes = "A%d" % first
-
-# --------------------------- chain strength ---------------------------
-sr = cr + 5
-banner(ws, sr, "CHAIN STRENGTH   |   driver is 13T in every config, so tension does NOT change across the sweep", 12)
-for j, h in enumerate(["Case", "Motor T (Nm)", "T at 13T (Nm)", "Tension (kN)", "Margin vs tensile", "Check"], 1):
+# ---------------------------- chain strength ----------------------------
+sr = fn + 4
+banner(ws, sr, "CHAIN STRENGTH   |   tension is set by the DRIVER, so it only moves if you change the driver", NC)
+for j, h in enumerate(["Case", "Motor T (Nm)", "T at driver (Nm)", "Tension (kN)", "Margin vs tensile", "Check"], 1):
     c = ws.cell(sr + 1, j, h)
     c.font = WF
     c.fill = HDR
     c.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
     c.border = BOX
-ws.row_dimensions[sr + 1].height = 30
+ws.row_dimensions[sr + 1].height = 32
 for k, (lbl, src) in enumerate([("Nominal peak", TPK), ("Transient (enduro/accel)", TTR)]):
     rr = sr + 2 + k
     ws.cell(rr, 1, lbl)
     ws.cell(rr, 2, "=%s" % src)
     ws.cell(rr, 3, "=B%d*%s" % (rr, GB))
-    ws.cell(rr, 4, "=2*C%d/(%s/1000)/1000" % (rr, D1F))
+    ws.cell(rr, 4, "=2*C%d/((%s/SIN(PI()/%s))/1000)/1000" % (rr, P, N1))
     ws.cell(rr, 5, "=%s/D%d" % (TENS, rr))
     ws.cell(rr, 6, '=IF(E%d>=2,"PASS","REVIEW")' % rr)
     for cc in range(1, 7):
@@ -221,42 +265,43 @@ for k, (lbl, src) in enumerate([("Nominal peak", TPK), ("Transient (enduro/accel
         ws.cell(rr, cc).alignment = CTR
     for cc in (3, 4, 5):
         ws.cell(rr, cc).number_format = "0.00"
-ws.cell(sr + 2, 1).alignment = Alignment(horizontal="left", vertical="center")
-ws.cell(sr + 3, 1).alignment = Alignment(horizontal="left", vertical="center")
+    ws.cell(rr, 1).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 ws.conditional_formatting.add("F%d:F%d" % (sr + 2, sr + 3), FormulaRule(
     formula=['F%d="PASS"' % (sr + 2)], fill=PatternFill("solid", fgColor="C6EFCE"),
     font=Font(color="006100", bold=True)))
 
-pr = sr + 5
-ws.cell(pr, 1, "Design power (SF x kW)").font = B
-c = ws.cell(pr, 2, "=%s*%s" % (SF, PWR))
+dp = sr + 5
+ws.cell(dp, 1, "Design power (SF x kW)").font = B
+ws.merge_cells(start_row=dp, start_column=1, end_row=dp, end_column=2)
+c = ws.cell(dp, 3, "=%s*%s" % (SF, PWR))
 c.number_format = "0.0"
 c.border = BOX
 c.alignment = CTR
-ws.cell(pr, 3, "kW").alignment = CTR
-note = ws.cell(pr, 4, "Mott has NO no.50 power rating table (only 40 / 60 / 80). Bracketing 13T at 3000 rpm gives "
-                      "~3.3 hp, versus a design power near 119 hp, so this chain does NOT pass Mott's power rating. "
-                      "It is justified by tensile margin plus short FSAE duty life, not by the table. Mott's ratings "
-                      "assume 15 000 h of industrial duty. Full write-up in sprocket_configs.md section 4.3.")
+ws.cell(dp, 4, "kW").alignment = CTR
+note = ws.cell(dp, 5, "Mott has NO no.50 power rating table (only 40 / 60 / 80). Bracketing 13T at 3000 rpm gives "
+                      "~3.3 hp against a design power near 119 hp, so this chain does NOT pass Mott's power "
+                      "rating. It is justified by tensile margin and short FSAE duty life, not by the table. "
+                      "Mott's ratings assume 15 000 h of industrial duty. See sprocket_configs.md section 4.3.")
 note.font = IT
 note.alignment = WRAP
-ws.merge_cells(start_row=pr, start_column=4, end_row=pr + 3, end_column=12)
+ws.merge_cells(start_row=dp, start_column=5, end_row=dp + 3, end_column=NC)
 
-wr = pr + 5
-ws.cell(wr, 1, "13T driver, known compromise").font = B
-c = ws.cell(wr, 2, "=100*(1-COS(PI()/%s))" % N1)
+wr = dp + 5
+ws.cell(wr, 1, "Chordal ripple at driver").font = B
+ws.merge_cells(start_row=wr, start_column=1, end_row=wr, end_column=2)
+c = ws.cell(wr, 3, "=100*(1-COS(PI()/%s))" % N1)
 c.number_format = "0.0"
 c.border = BOX
 c.alignment = CTR
-ws.cell(wr, 3, "% ripple").alignment = CTR
-n2 = ws.cell(wr, 4, "Mott flags chordal action below ~17 teeth. 13T is under that line. That is the chordal speed "
-                    "variation, peak to peak. We are keeping 13T because changing the driver is the only way to get "
-                    "between-step ratios and that was ruled out. Inherited compromise, not a design win.")
+ws.cell(wr, 4, "%").alignment = CTR
+n2 = ws.cell(wr, 5, "Mott flags chordal action below ~17 teeth. 13T is under that line. Kept deliberately: going "
+                    "smaller makes it worse, going bigger gives back ratio you then have to buy on the driven "
+                    "anyway, and the driver is a splined bought part. Inherited compromise, not a design win.")
 n2.font = IT
 n2.alignment = WRAP
-ws.merge_cells(start_row=wr, start_column=4, end_row=wr + 2, end_column=12)
+ws.merge_cells(start_row=wr, start_column=5, end_row=wr + 2, end_column=NC)
 
-CALC_FIRST, CALC_CR = first, cr
+ws.freeze_panes = "C%d" % first
 
 # ========================== SHEET 2: SIM MAP ==========================
 ws2 = wb.create_sheet("Sim Cross-Map")
@@ -596,4 +641,4 @@ for k, v in lines:
 path = os.path.join(ROOT, "CFR27_Sprocket_Study.xlsx")
 wb.save(path)
 print("wrote", path)
-print("config rows %d-%d, custom row %d" % (CALC_FIRST, CALC_CR - 1, CALC_CR))
+print("table1 rows %d-%d, playground rows %d-%d" % (first, last1, pfirst, plast))
