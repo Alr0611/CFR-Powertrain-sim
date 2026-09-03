@@ -396,3 +396,105 @@ One practical note: any replacement driver has to have this exact 6-lobe 21.0 / 
 bought-part constraint, not something you can machine into an arbitrary blank without a broach. Check the
 bore spec against the numbers above before ordering, do not trust a part number alone, since the part
 number on this one already has the wrong tooth count attached to it.
+
+## 8. Centre distance measured, and the diff sprocket from CAD
+
+### 8.1 Centre distance
+
+**C = 152.08 mm**, MEASURED-CAD (SolidWorks Measure, 13T centre to diff sprocket centre). This unblocks
+everything in section 5 that said NEED C. Worth confirming once on the car, but it is a real number now,
+not a guess.
+
+### 8.2 The diff sprocket, measured off `cfr_sprocket.STEP`
+
+| Feature | Value | Tag |
+|---|---|---|
+| Teeth | **30** | MEASURED-CAD |
+| Outside diameter | 160.5656 mm | MEASURED-CAD |
+| Pitch diameter | 151.873 mm | CALC, matches CAD OD exactly |
+| Tooth plate thickness | 4.744 mm | MEASURED-CAD |
+| Central bore | 45.600 mm | MEASURED-CAD |
+| Hub thickness at bore | 8.712 mm | MEASURED-CAD |
+| Bolt pattern | **6 x dia 6.310 mm on 92.690 mm BCD**, 60 deg spacing | MEASURED-CAD |
+| Overall Z extent | 10.000 mm | MEASURED-CAD |
+
+The CAD OD of 160.5656 is an exact match to Mott's OD for 30 teeth, so the tooth count is confirmed
+independently of the filename. Same check that caught the 12T/13T error on the driver.
+
+**This one is made in house**, not a bought JT part. That matters: a new driven sprocket keeps the same
+45.60 bore and 92.69 BCD, so **the diff mounting is reusable across every tooth count in the sweep.**
+Even the smallest (26T) has a root diameter of 121.54 mm against a bolt-hole outer edge at 99.0 mm, which
+leaves 11.3 mm of web. No config in this study forces a new diff interface.
+
+So both ends are now settled: the driver reuses its spline (section 7), the driven reuses its bolt
+pattern. **Nothing in the 26T to 34T sweep requires a new shaft, hub, or mounting.**
+
+### 8.3 Chain and wrap at the real centre distance
+
+Mott `L = 2C/P + (N1+N2)/2 + ((N2-N1)/2pi)^2 * P/C` at C = 152.08:
+
+| Driven | Ratio | Wrap on 13T (deg) | Chain (pitches) | Round to even | C for that even count (mm) | Axle move vs 152.08 |
+|---|---|---|---|---|---|---|
+| 26T | 4.0000 | 155.2 | 39.11 | 40 | 159.33 | +7.25 |
+| 27T | 4.1538 | 153.2 | 39.68 | 40 | 154.71 | +2.63 |
+| 28T | 4.3077 | 151.3 | 40.25 | 40 | 149.99 | -2.09 |
+| 29T | 4.4615 | 149.3 | 40.84 | 40 | 145.18 | -6.90 |
+| 30T **(current)** | 4.6154 | 147.3 | 41.42 | 42 | 156.84 | +4.76 |
+| 31T | 4.7692 | 145.3 | 42.02 | 42 | 151.94 | -0.14 |
+| 32T | 4.9231 | 143.4 | 42.61 | 42 | 146.94 | -5.14 |
+| 33T | 5.0769 | 141.3 | 43.22 | 44 | 158.64 | +6.56 |
+| 34T | 5.2308 | 139.3 | 43.83 | 44 | 153.55 | +1.47 |
+
+**Wrap passes everywhere.** Worst case is 34T at 139.3 deg, still well clear of the 120 deg flag. The
+120 deg limit would need C below 105.7 mm and we are at 152.08, so wrap is simply not a constraint on this
+car. That column can stop being a worry.
+
+**Chain length is the real work.** At the measured C the current 30T wants 41.42 pitches and the nearest
+even count is 42, which corresponds to C = 156.84. That is 4.76 mm more than measured, so the current
+build is taking up about 4.8 mm of slack somewhere, on the tensioner or in the diff mount adjustment.
+That is normal and it is also the budget you have to play with. Read the last column as **how far the
+diff has to move from where it sits today** to land on a clean even chain.
+
+Cheapest changes from here, by how little the axle has to move:
+
+- **31T: -0.14 mm.** Essentially a drop-in on a 42-pitch chain. Odd count so it wants an offset link.
+- **34T: +1.47 mm** on a 44-pitch chain, but it is off the end of the sim sweep, so no data.
+- **28T: -2.09 mm** on a 40-pitch chain. Even, no offset link. This is the clean one.
+- **27T: +2.63 mm** on 40 pitches, odd.
+- **30T: +4.76 mm** on 42, which is where it sits now.
+
+### 8.4 Envelope numbers for the chassis lead
+
+What the chassis lead actually needs is the driven sprocket outside diameter, since that is the thing that
+has to clear structure. Growth is **+5.044 mm on diameter per tooth, so +2.522 mm on radius**.
+
+| Driven | Ratio | Pitch dia (mm) | OD (mm) | OD radius (mm) | Root dia (mm) |
+|---|---|---|---|---|---|
+| 26T | 4.0000 | 131.70 | 140.27 | 70.13 | 121.54 |
+| 27T | 4.1538 | 136.74 | 145.34 | 72.67 | 126.58 |
+| 28T | 4.3077 **<- likely band** | 141.79 | 150.42 | 75.21 | 131.63 |
+| 29T | 4.4615 **<- likely band** | 146.83 | 155.49 | 77.75 | 136.67 |
+| 30T **(current)** | 4.6154 **<- likely band** | 151.87 | 160.57 | 80.28 | 141.71 |
+| 31T | 4.7692 **<- likely band** | 156.92 | 165.64 | 82.82 | 146.76 |
+| 32T | 4.9231 | 161.96 | 170.71 | 85.35 | 151.80 |
+| 33T | 5.0769 | 167.01 | 175.78 | 87.89 | 156.85 |
+| 34T | 5.2308 | 172.05 | 180.84 | 90.42 | 161.89 |
+
+**Give the chassis lead this:**
+
+| Case | Driven teeth | OD range (mm) | OD radius range (mm) |
+|---|---|---|---|
+| Likely, ratio 4.2 to 4.8 | 28T to 31T | 150.4 to 165.6 | 75.2 to 82.8 |
+| Full sweep, 4.00 to 5.20 | 26T to 34T | 140.3 to 180.8 | 70.1 to 90.4 |
+| Current build | 30T | 160.6 | 80.3 |
+
+The honest ask to hand over: **design the envelope to 34T, OD 180.84 mm, radius 90.42 mm.** That is
++10.14 mm on radius over what is fitted today and it covers the entire sweep with margin. If the chassis
+cannot give that, the next sensible line is 31T at radius 82.82 mm, which is +2.54 mm over today and
+covers the whole 4.2 to 4.8 band you actually expect to land in.
+
+**One thing still missing.** These are sprocket outside diameters. The chain sits on the pitch circle and
+its outer link plates stand proud of the sprocket, so the true swept envelope is a few mm bigger than the
+OD. Getting that exactly needs the **520 chain plate height, which is UNKNOWN** (not in any sheet, and the
+chain is not in the STEP files I have). Tell the chassis lead the OD numbers are the sprocket only and to
+carry a clearance allowance on top, or get the plate height off the chain datasheet and it becomes exact.

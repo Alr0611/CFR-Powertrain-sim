@@ -10,6 +10,7 @@ import os
 import openpyxl
 from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter as get_col
 
 HDR = PatternFill("solid", fgColor="1F3864")
 SUB = PatternFill("solid", fgColor="D9E2F3")
@@ -89,15 +90,17 @@ TPK, TTR, PWR = "$B$10", "$B$11", "$B$12"
 TENS, SF, WMIN = "$B$14", "$B$15", "$B$16"
 
 r += 1
-banner(ws, r, "MEASURE THESE   |   the fit check is meaningless until they are filled in", 12)
+banner(ws, r, "MEASURED / STILL TO MEASURE", 12)
 mr = r + 1
-for lbl, note in [
-    ("Centre distance C", "13T centre to driven sprocket centre. NOT in any CFR24 sheet. Tape measure or CAD."),
-    ("Radial clearance available", "From the 30T outer edge to the nearest hard point (chassis rail / floor / upright)."),
+for lbl, val, note in [
+    ("Centre distance C", 152.08,
+     "MEASURED-CAD, SolidWorks Measure, 13T centre to diff sprocket centre. Confirm on the car."),
+    ("Radial clearance available", None,
+     "STILL UNKNOWN. From the 30T outer edge to the nearest hard point (chassis rail / floor / upright)."),
 ]:
     ws.cell(mr, 1, lbl).font = B
-    c = ws.cell(mr, 2, None)
-    c.fill = UNK
+    c = ws.cell(mr, 2, val)
+    c.fill = INP if val is not None else UNK
     c.border = BOX
     c.alignment = CTR
     ws.cell(mr, 3, "mm").alignment = CTR
@@ -463,6 +466,84 @@ n = ws4.cell(35, 1, "Even a 10T leaves 8.1 mm of wall over the spline, so the bo
 n.font = IT
 n.alignment = WRAP
 ws4.merge_cells("A35:G38")
+
+# ========================== SHEET: COMBOS GRID ==========================
+ws5 = wb.create_sheet("Combos Grid")
+banner(ws5, 1, "ALL COMBOS   |   total ratio = 2.000 x driven / driver", 18)
+n = ws5.cell(2, 1, "Rows = driven teeth (diff sprocket). Columns = driver teeth (gearbox output). "
+                   "Green = inside the 4.2-4.8 band the owner expects. Yellow = inside the full 4.00-5.20 sweep "
+                   "but outside that band. Blank/grey = outside the sweep entirely. The 13T column is the one "
+                   "that matters, the rest is there so nobody has to ask what if.")
+n.font = IT
+n.alignment = WRAP
+ws5.merge_cells("A2:R2")
+ws5.row_dimensions[2].height = 34
+ws5.column_dimensions["A"].width = 16
+drivers = list(range(11, 18))
+c = ws5.cell(4, 1, "driven / driver")
+c.font = WF
+c.fill = HDR
+c.alignment = CTR
+c.border = BOX
+for j, dv in enumerate(drivers, 2):
+    c = ws5.cell(4, j, dv)
+    c.font = WF
+    c.fill = HDR
+    c.alignment = CTR
+    c.border = BOX
+    ws5.column_dimensions[get_col(j)].width = 11
+c = ws5.cell(4, len(drivers) + 3, "Driven sprocket geometry")
+c.font = B
+ws5.merge_cells(start_row=4, start_column=len(drivers) + 3, end_row=4, end_column=len(drivers) + 6)
+for j, h in enumerate(["Pitch dia (mm)", "OD (mm)", "OD radius (mm)", "Root dia (mm)"], len(drivers) + 3):
+    c = ws5.cell(5, j, h)
+    c.font = WF
+    c.fill = HDR
+    c.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
+    c.border = BOX
+    ws5.column_dimensions[get_col(j)].width = 14
+ws5.row_dimensions[5].height = 30
+for i, N2 in enumerate(range(24, 41)):
+    rr = 6 + i
+    c = ws5.cell(rr, 1, N2)
+    c.font = B
+    c.fill = SUB
+    c.border = BOX
+    c.alignment = CTR
+    for j, dv in enumerate(drivers, 2):
+        c = ws5.cell(rr, j, "='Sprocket Calc'!$B$9*$A%d/%d" % (rr, dv))
+        c.number_format = "0.000"
+        c.border = BOX
+        c.alignment = CTR
+    gj = len(drivers) + 3
+    ws5.cell(rr, gj, "=15.875/SIN(PI()/$A%d)" % rr).number_format = "0.00"
+    ws5.cell(rr, gj + 1, "=15.875*(0.6+1/TAN(PI()/$A%d))" % rr).number_format = "0.00"
+    ws5.cell(rr, gj + 2, "=%s%d/2" % (get_col(gj + 1), rr)).number_format = "0.00"
+    ws5.cell(rr, gj + 3, "=%s%d-10.16" % (get_col(gj), rr)).number_format = "0.00"
+    for j in range(gj, gj + 4):
+        ws5.cell(rr, j).border = BOX
+        ws5.cell(rr, j).alignment = CTR
+    if N2 == 30:
+        ws5.cell(rr, 1).fill = CUR
+last = 5 + 17
+rngc = "B6:%s%d" % (get_col(len(drivers) + 1), last)
+ws5.conditional_formatting.add(rngc, FormulaRule(
+    formula=["AND(B6>=4.2,B6<=4.8)"], fill=PatternFill("solid", fgColor="C6EFCE"),
+    font=Font(color="006100", bold=True)))
+ws5.conditional_formatting.add(rngc, FormulaRule(
+    formula=["AND(B6>=4,B6<=5.2)"], fill=PatternFill("solid", fgColor="FFEB9C"), font=Font(color="9C6500")))
+ws5.conditional_formatting.add(rngc, FormulaRule(
+    formula=["OR(B6<4,B6>5.2)"], fill=PatternFill("solid", fgColor="F2F2F2"), font=Font(color="A6A6A6")))
+ws5.freeze_panes = "B6"
+
+n = ws5.cell(last + 2, 1, "Reminder on why only the 13T column is real: the driver sits on a 6-lobe spline "
+                          "(21.0 / 25.0 / 5.0) on DT-P2127 and any replacement has to have that exact bore, which "
+                          "is a bought-part constraint. The driven sprocket is made in house (cfr_sprocket) and "
+                          "reuses a 45.60 bore on a 92.69 BCD with 6 x dia 6.31 holes, so any tooth count in this "
+                          "grid keeps the same diff mounting. That is why the driven column is the free one.")
+n.font = IT
+n.alignment = WRAP
+ws5.merge_cells(start_row=last + 2, start_column=1, end_row=last + 5, end_column=12)
 
 # ========================== SHEET 3: README ==========================
 ws3 = wb.create_sheet("README")
