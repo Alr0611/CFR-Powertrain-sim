@@ -357,6 +357,113 @@ ws2.cell(rr + 1, 1, "SOC98 = endurance final state of charge from a 98% start, p
 ws2.cell(rr + 1, 1).alignment = WRAP
 ws2.merge_cells(start_row=rr + 1, start_column=1, end_row=rr + 3, end_column=7)
 
+# ======================== SHEET 3: SPLINE / DRIVER ========================
+ws4 = wb.create_sheet("Spline + Driver")
+widths(ws4, {"A": 26, "B": 14, "C": 14, "D": 14, "E": 22, "F": 16, "G": 34})
+banner(ws4, 1, "SPLINED INTERFACE   |   measured off CFR26 motor gearbox assembly.STEP", 7)
+n = ws4.cell(2, 1, "Parsed straight out of the BREP solid, not eyeballed. The mating male spline is on DT-P2127, "
+                   "the gearbox output shaft, which carries the same 21.0 / 25.0 cylinders, so the pair is "
+                   "confirmed from both sides.")
+n.font = IT
+n.alignment = WRAP
+ws4.merge_cells("A2:G2")
+ws4.row_dimensions[2].height = 30
+
+banner(ws4, 4, "THE CAD NAME SAYS 12T. THE GEOMETRY SAYS 13T. FOUR FEATURES AGREE.", 7)
+for j, h in enumerate(["Evidence", "Measured", "12T would be", "13T would be", "Verdict"], 1):
+    c = ws4.cell(5, j, h)
+    c.font = WF
+    c.fill = HDR
+    c.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
+    c.border = BOX
+ev = [
+    ("Outside diameter (mm)", "73.9324", "68.7713", "73.9324", "13T"),
+    ("Coaxial tip faces", "13", "12", "13", "13T"),
+    ("Roller seat pockets", "13", "12", "13", "13T"),
+    ("Tooth flank planes", "26", "24", "26", "13T"),
+]
+for k, row in enumerate(ev):
+    for j, v in enumerate(row, 1):
+        c = ws4.cell(6 + k, j, v)
+        c.border = BOX
+        c.alignment = CTR
+        if j == 1:
+            c.alignment = Alignment(horizontal="left", vertical="center")
+        if j == 5:
+            c.fill = PatternFill("solid", fgColor="FFC7CE")
+            c.font = Font(color="9C0006", bold=True)
+
+banner(ws4, 11, "SPLINE DIMENSIONS   |   all MEASURED-CAD", 7)
+sp = [
+    ("Spline form", "6 straight-sided lobes at 60 deg"),
+    ("Minor diameter", "21.000 mm"),
+    ("Major diameter", "25.000 mm"),
+    ("Slot / tooth width", "5.000 mm"),
+    ("Sprocket plate thickness", "5.850 mm"),
+    ("Retention holes", "2 x dia 6.000 mm on a 37.000 mm span"),
+    ("Mating shaft part", "DT-P2127, gearbox output shaft"),
+]
+for k, (a, b) in enumerate(sp):
+    c = ws4.cell(12 + k, 1, a)
+    c.font = B
+    c.border = BOX
+    c2 = ws4.cell(12 + k, 2, b)
+    c2.border = BOX
+    ws4.merge_cells(start_row=12 + k, start_column=2, end_row=12 + k, end_column=4)
+
+banner(ws4, 20, "DOES THE SPLINE LIMIT THE SWEEP?   NO.", 7)
+n = ws4.cell(21, 1, "The DRIVEN sprocket does not touch this spline. It mounts to the differential, which is not "
+                    "in this STEP at all (no part in the assembly comes near the 80.3 mm radius a 30T needs). "
+                    "Sweeping the driven from 26T to 34T never changes the shaft, the spline, or the driver. "
+                    "All nine configs reuse the existing splined 13T exactly as it sits.")
+n.font = IT
+n.alignment = WRAP
+ws4.merge_cells("A21:G23")
+
+banner(ws4, 25, "IF YOU EVER CHANGE THE DRIVER   |   the bore is not what limits you", 7)
+for j, h in enumerate(["Driver teeth", "Pitch dia (mm)", "Root dia (mm)", "Wall over spline (mm)",
+                       "Total ratio with 30T", "Bore OK?", "What actually limits it"], 1):
+    c = ws4.cell(26, j, h)
+    c.font = WF
+    c.fill = HDR
+    c.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
+    c.border = BOX
+ws4.row_dimensions[26].height = 34
+for k, N in enumerate(range(10, 17)):
+    rr = 27 + k
+    ws4.cell(rr, 1, N)
+    ws4.cell(rr, 2, "=%s/SIN(PI()/A%d)" % (P, rr)).number_format = "0.00"
+    ws4.cell(rr, 3, "=B%d-10.16" % rr).number_format = "0.00"
+    ws4.cell(rr, 4, "=(C%d-25)/2" % rr).number_format = "0.00"
+    ws4.cell(rr, 5, "=%s*30/A%d" % (GB, rr)).number_format = "0.000"
+    ws4.cell(rr, 6, '=IF(D%d>=3,"OK","TOO THIN")' % rr)
+    lim = ("chordal action, Mott flags below ~17T" if N < 17 else "")
+    if N < 13:
+        lim = "chordal action gets worse fast below 13T"
+    elif N == 13:
+        lim = "CURRENT. Nothing wins by moving."
+    else:
+        lim = "kills reduction, buy it back on the driven instead"
+    ws4.cell(rr, 7, lim).alignment = WRAP
+    for cc in range(1, 8):
+        ws4.cell(rr, cc).border = BOX
+        if cc < 7:
+            ws4.cell(rr, cc).alignment = CTR
+    if N == 13:
+        for cc in range(1, 8):
+            ws4.cell(rr, cc).fill = CUR
+ws4.conditional_formatting.add("F27:F33", FormulaRule(
+    formula=['F27="OK"'], fill=PatternFill("solid", fgColor="C6EFCE"), font=Font(color="006100", bold=True)))
+
+n = ws4.cell(35, 1, "Even a 10T leaves 8.1 mm of wall over the spline, so the bore is nowhere near the limit. "
+                    "Any replacement driver still has to have this exact 6-lobe 21.0 / 25.0 / 5.0 bore, which is "
+                    "a bought-part constraint, not something to machine into a blank without a broach. Check the "
+                    "bore against the numbers above before ordering. Do not trust a part number alone, the one on "
+                    "this sprocket already has the wrong tooth count attached to it.")
+n.font = IT
+n.alignment = WRAP
+ws4.merge_cells("A35:G38")
+
 # ========================== SHEET 3: README ==========================
 ws3 = wb.create_sheet("README")
 widths(ws3, {"A": 30, "B": 100})

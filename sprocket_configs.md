@@ -322,3 +322,77 @@ Method: chain geometry and ratings per Mott, *Machine Elements in Mechanical Des
 7-14, 7-15, 7-17). Gear check per Ch.9. Fixed inputs from `CFR24 Driveline Tool - Final Geometry.xlsx`
 and `cfr24 dt/Sprocket Gearing and Forces.xlsx`. Sim data from `output/gear_ratio_results.csv` and
 `output/accel_results.csv`. `params_cfr26.m` stays the source of truth for ratios and was not edited.
+
+## 7. The splined interface, measured off the CAD
+
+Source: `Downloads/CFR26 motor gearbox assembly.STEP` (SolidWorks 2026, AP203). I parsed the BREP
+directly rather than eyeballing it, so these are read off the solid, tagged **MEASURED-CAD**.
+
+### 7.1 The part is 13T, not 12T. The CAD name is wrong.
+
+The component is named **`DT-P2120_JTF 1324 - 12T`**. Its geometry is not 12T:
+
+| Evidence | Value | What it means |
+|---|---|---|
+| Max cylindrical radius | 36.9662 mm, so OD 73.9324 mm | Mott OD for **13T** at 15.875 pitch is 73.9324. Exact match. 12T would be 68.7713. |
+| Coaxial tip faces at that radius | **13** | 13 tooth tips |
+| Roller seat pockets | **13**, dia 10.2138 mm | 13 seats, and the seat matches a 520 roller (10.16 nominal) |
+| Tooth flank planes | **26** = 13 x 2 | 13 teeth, two flanks each |
+
+**Four independent features all say 13.** The `- 12T` in the filename is a naming error. Worth fixing in
+the CAD before somebody orders a 12T off the strength of the filename, because 12T would be 5.00:1 total,
+not 4.615, and that is a whole different car.
+
+### 7.2 The spline
+
+| Feature | Value | Tag |
+|---|---|---|
+| Spline form | 6 straight-sided lobes at 60 deg | MEASURED-CAD |
+| Minor diameter | 21.000 mm | MEASURED-CAD |
+| Major diameter | 25.000 mm | MEASURED-CAD |
+| Slot / tooth width | 5.000 mm | MEASURED-CAD |
+| Sprocket plate thickness | 5.850 mm | MEASURED-CAD |
+| Retention holes | 2 x dia 6.000 mm on a 37.000 mm span | MEASURED-CAD |
+
+The mating male spline is on **`DT-P2127`**, the gearbox output shaft. It carries the same 21.0 / 25.0
+cylinders, so the pair is confirmed from both sides. (That is also the part the CFR24
+`Fatigue Load Cases.xlsx` sheet is named after.)
+
+### 7.3 Does the spline constrain the sweep? No.
+
+**The driven sprocket does not touch this spline.** It mounts to the differential, which is not in this
+STEP at all (no part in the assembly has a radius anywhere near the 80.3 mm a 30T needs). So sweeping the
+driven from 26T to 34T **never changes the shaft, the spline, or the driver**. All nine configs reuse the
+existing splined 13T exactly as it sits.
+
+That is the answer to the question: **yes, the spline stays the same across every config in this study.**
+
+### 7.4 If you ever do change the driver
+
+The spline is not what limits you. The bore only needs the sprocket root to clear the 25.0 mm major
+diameter with wall left over. Root dia = pitch dia - roller dia:
+
+| Driver N | Pitch dia (mm) | Root dia (mm) | Wall over spline (mm) | Total ratio with 30T |
+|---|---|---|---|---|
+| 10T | 51.37 | 41.21 | 8.11 | 6.000 |
+| 11T | 56.35 | 46.19 | 10.59 | 5.455 |
+| 12T | 61.34 | 51.18 | 13.09 | 5.000 |
+| 13T **(current)** | 66.33 | 56.17 | 15.59 | 4.615 |
+| 14T | 71.34 | 61.18 | 18.09 | 4.286 |
+| 15T | 76.35 | 66.19 | 20.60 | 4.000 |
+| 16T | 81.37 | 71.21 | 23.11 | 3.750 |
+
+Even a 10T has 8.1 mm of wall over the spline, so **the bore is nowhere near the limit**. What actually
+limits a small driver is Mott's chordal action (section 4.4), plus chain and sprocket wear life, and those
+get worse fast below 13T. Going the other way, you are right that a bigger driver is trash for a different
+reason: it kills the reduction. 15T with the 30T gives 4.000, which you can already get from a 26T driven
+without touching the splined shaft or the tensioner setup.
+
+**So the driver stays 13T, and not just because it was inherited. There is no version of moving it that
+wins.** Small is limited by chordal action, big is limited by losing ratio you then have to buy back on
+the driven anyway.
+
+One practical note: any replacement driver has to have this exact 6-lobe 21.0 / 25.0 / 5.0 bore. That is a
+bought-part constraint, not something you can machine into an arbitrary blank without a broach. Check the
+bore spec against the numbers above before ordering, do not trust a part number alone, since the part
+number on this one already has the wrong tooth count attached to it.
