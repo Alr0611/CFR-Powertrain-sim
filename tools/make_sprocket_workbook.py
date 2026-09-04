@@ -757,6 +757,92 @@ if OLR:
     n.alignment = WRAP
     ws7.merge_cells(start_row=lr + 7, start_column=1, end_row=lr + 11, end_column=8)
 
+# ====================== SHEET: CHAIN CONFIG RANKING ======================
+try:
+    with open(os.path.join(ROOT, "output", "chain_config_ranking.csv")) as _f:
+        CCR = list(csv.DictReader(_f))
+except FileNotFoundError:
+    CCR = []
+
+if CCR:
+    ws8 = wb.create_sheet("Chain Config Rank")
+    widths(ws8, {"A": 11, "B": 9, "C": 10, "D": 7, "E": 11, "F": 10, "G": 12, "H": 10,
+                 "I": 11, "J": 10, "K": 10, "L": 9, "M": 10, "N": 9, "O": 8, "P": 42})
+    banner(ws8, 1, "CHAIN + SPROCKET CONFIG RANKING   |   every combo in the 4.28-4.44 band", 16)
+    n = ws8.cell(2, 1, "Ranked by chain loss (articulation friction, lower is better). Three HARD GATES kill a "
+                       "config: driven bigger than the 171.4 mm envelope the chassis lead was given, over redline "
+                       "on the 0.190 loaded wheel radius, or a driver below 13T (chain life and chordal action). "
+                       "Only two combos pass all three. Chain geometry is MEASURED off chain.STEP and the sprocket "
+                       "STEPs; accel and SOC are interpolated from the MATLAB sweep.")
+    n.font = IT
+    n.alignment = WRAP
+    ws8.merge_cells("A2:P2")
+    ws8.row_dimensions[2].height = 48
+    heads8 = ["Combo", "Ratio", "Env dia", "Fits", "Chain loss %", "vs now", "Chain tens N",
+              "Chordal %", "Max rpm free", "Max rpm loaded", "Redline OK", "Chain",
+              "Axle move", "0-75 m", "SOC98", "Verdict / blockers"]
+    for j, h in enumerate(heads8, 1):
+        c = ws8.cell(4, j, h)
+        c.font = WF
+        c.fill = HDR
+        c.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
+        c.border = BOX
+    ws8.row_dimensions[4].height = 44
+    for i, r in enumerate(CCR):
+        rr = 5 + i
+        ok = r["viable"] == "YES"
+        vals = ["%sT/%sT" % (r["driver"], r["driven"]), float(r["ratio"]), float(r["env_dia_mm"]),
+                r["fits"], float(r["chain_loss_pct"]), float(r["chain_loss_vs_now_pct"]),
+                float(r["chain_tension_N"]), float(r["chordal_pct"]), float(r["max_rpm_free"]),
+                float(r["max_rpm_loaded"]), r["redline_ok_loaded"], "%sp" % r["chain_pitches"],
+                float(r["axle_move_mm"]), float(r["t75_s"]), float(r["SOC98"])]
+        for j, v in enumerate(vals, 1):
+            c = ws8.cell(rr, j, v)
+            c.border = BOX
+            c.alignment = CTR
+            if j == 2:
+                c.number_format = "0.0000"
+            elif j in (5,):
+                c.number_format = "0.0000"
+            elif j in (6, 13):
+                c.number_format = "+0.00;-0.00"
+            elif j in (8, 15):
+                c.number_format = "0.00"
+            elif j == 14:
+                c.number_format = "0.0000"
+            elif j in (3, 7, 9, 10):
+                c.number_format = "0.0"
+        verdict = ("BEST VIABLE" if (ok and i == 0) else ("viable" if ok else r["blockers"]))
+        c = ws8.cell(rr, 16, verdict)
+        c.alignment = WRAP
+        c.border = BOX
+        if ok:
+            for j in range(1, 17):
+                ws8.cell(rr, j).fill = CUR
+            ws8.cell(rr, 16).font = B
+        else:
+            for j in range(1, 17):
+                ws8.cell(rr, j).fill = PatternFill("solid", fgColor="F2F2F2")
+                ws8.cell(rr, j).font = Font(color="808080")
+    lr = 4 + len(CCR)
+    n = ws8.cell(lr + 2, 1, "WHY ONLY TWO SURVIVE: every combo with a 15T or larger driver needs a driven sprocket "
+                            "bigger than the envelope allows, because ratio ties the two together. Every combo with "
+                            "a 12T or smaller driver fits easily but makes chain tension and chordal action worse "
+                            "than the 13T we already call a compromise. That leaves 13T/28T and 14T/30T.")
+    n.font = IT
+    n.alignment = WRAP
+    ws8.merge_cells(start_row=lr + 2, start_column=1, end_row=lr + 4, end_column=16)
+    n = ws8.cell(lr + 6, 1, "PICK 14T/30T IF you can source a 14T in the 6-lobe 21.0 / 25.0 / 5.0 spline bore. It "
+                            "cuts chain loss 5%, chain tension 7% and chordal ripple 14%, keeps the existing 30T "
+                            "driven and the existing 42-pitch chain, moves the axle 1.34 mm, and clears redline on "
+                            "both wheel-radius assumptions. PICK 13T/28T IF that sprocket does not exist: it still "
+                            "clears redline and frees 10 mm of rear room, but chain loss goes 2.2% the WRONG way "
+                            "because the driven gets smaller. Be honest that the chain-loss numbers are worth about "
+                            "0.14 Wh/lap either way -- the real win is the redline fix and chain life, not energy.")
+    n.font = B
+    n.alignment = WRAP
+    ws8.merge_cells(start_row=lr + 6, start_column=1, end_row=lr + 10, end_column=16)
+
 # ========================== SHEET 3: README ==========================
 ws3 = wb.create_sheet("README")
 widths(ws3, {"A": 30, "B": 100})
