@@ -42,7 +42,15 @@ for g = [4.0 4.2 p.gear_current 5.0 5.2]
     fprintf(' %.2f:1 -> 0-100kph %s | 0-75m %.2fs | trap %.0f kph%s\n', ...
         gears(j), t100str, t75(j), vtrap(j), tag);
 end
-[~,jCur] = min(abs(gears-p.gear_current));   % exact hit now that 4.61 is on the grid
+% ---- LOCKED 4.3077 (13/28) vs PREVIOUS 4.61 (13/30): read both out directly ----
+[~,jLock] = min(abs(gears-4.3077)); [~,jPrev] = min(abs(gears-4.61));
+fprintf('\n--- LOCKED 4.3077 (13/28) vs PREVIOUS 4.61 (13/30) ---\n');
+fprintf('  4.3077 (LOCKED): 0-75m %.2fs | trap %.0f kph\n', t75(jLock), vtrap(jLock));
+fprintf('  4.61   (prev)  : 0-75m %.2fs | trap %.0f kph\n', t75(jPrev), vtrap(jPrev));
+fprintf('  delta (locked - prev): %+.2fs on 0-75m (lower ratio = slower accel, buys endurance charge)\n', ...
+    t75(jLock)-t75(jPrev));
+
+[~,jCur] = min(abs(gears-p.gear_current));   % exact hit now that 4.3077 is on the grid
 fprintf('0-75m is MONOTONIC (no interior optimum): accel favors higher ratio until gearing out.\n');
 fprintf('Model %.2fs at %.2f vs real clean launch 4.40s -> ~%.2fs conservative.\n', ...
     t75(jCur), gears(jCur), t75(jCur)-4.40);

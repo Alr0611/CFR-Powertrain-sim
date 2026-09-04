@@ -21,7 +21,7 @@ p.Q_cell     = 4.4 * 3600;  % How much charge one cell holds, in amp-SECONDS.
                             % than this -- see the "known warnings" note in README in the GitHub.
 
 %% ---- GEAR RATIOS  ----
-p.gear_current  = 4.61;                                  % what's on the car now
+p.gear_current  = 4.3077;                                % LOCKED 2026-09. 15/30 gearbox (2.00) x 13/28 sprocket (2.1538) = 4.3077. Was 4.61 (13/30).
 p.gears_to_test = unique(round([4.0:0.1:5.2, 4.61, 2.0*(26:34)/13], 4));
                             % everything we're trying. The 2.0*(26:34)/13 terms are the
                             % BUILDABLE sprocket ratios: fixed 15:30 gearbox (2.000) times
