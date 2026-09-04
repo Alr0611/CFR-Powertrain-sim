@@ -24,7 +24,12 @@ T_SHAFT = 300.0     # 150 Nm OWNER x 2.000 gearbox
 ENV_CAP = 171.4     # what the chassis lead was given, envelope DIAMETER
 REDLINE = 6000
 W_MAX = 6083 / 4.61     # wheel rpm at the measured peak motor rpm
-R_FREE, R_LOADED = 0.200, 0.190
+# Motor rpm at a GIVEN ROAD SPEED scales with ratio alone:
+#     rpm_new = rpm_measured * g_new / g_measured
+# Wheel rpm = motor rpm / ratio, which is exact and has NO rolling radius in it, so
+# the radius CANCELS. An earlier version of this file multiplied by 0.200/0.190 and
+# called it a "loaded radius" case; that was a double count and it wrongly killed the
+# entire 4.40-4.45 band. Radius only sets what ROAD SPEED a given rpm corresponds to.
 BAND = (4.28, 4.44)     # practical 4.3-4.4 band, slightly widened so the 14T
                         # options are visible rather than silently excluded
 import sys as _sys
@@ -90,8 +95,7 @@ def main():
             L = chain_len(a, b)
             ev = 2 * round(L / 2)
             Cn = C_for(a, b, ev)
-            rpm_f = W_MAX * g
-            rpm_l = rpm_f * (R_FREE / R_LOADED)
+            rpm_at_same_v = W_MAX * g
             rows.append({
                 "driver": a, "driven": b, "ratio": g,
                 "env_dia_mm": e,
@@ -100,10 +104,8 @@ def main():
                 "chordal_pct": 100 * (1 - math.cos(math.pi / a)),
                 "chain_loss_pct": loss_pct(a, b),
                 "chain_loss_vs_now_pct": 100 * (loss_pct(a, b) / base_loss - 1),
-                "max_rpm_free": rpm_f,
-                "max_rpm_loaded": rpm_l,
-                "redline_ok_free": "YES" if rpm_f <= REDLINE else "NO",
-                "redline_ok_loaded": "YES" if rpm_l <= REDLINE else "NO",
+                "max_rpm_at_same_speed": rpm_at_same_v,
+                "redline_ok": "YES" if rpm_at_same_v <= REDLINE else "NO",
                 "chain_pitches": ev,
                 "axle_move_mm": Cn - C0,
                 "t75_s": interp(mr, t75, g),
@@ -117,8 +119,8 @@ def main():
         why = []
         if r["fits"] == "NO":
             why.append("driven too big for the envelope")
-        if r["redline_ok_loaded"] == "NO":
-            why.append("over redline on the loaded radius")
+        if r["redline_ok"] == "NO":
+            why.append("still over redline at the same road speed")
         if r["driver"] < 13:
             why.append("driver below 13T, chain life and chordal get worse")
         r["blockers"] = "; ".join(why) if why else ""
@@ -133,11 +135,11 @@ def main():
     print("envelope cap %.1f mm dia | redline %d | current 13T/30T = %.4f" % (ENV_CAP, REDLINE, GB * 30 / 13))
     print("=" * 108)
     print("%-9s %-8s %-8s %-6s %-9s %-8s %-9s %-8s %-8s %-7s" % (
-        "combo", "ratio", "envDIA", "fits", "chainLoss", "vs now", "rpm load", "chain", "axle", "OK?"))
+        "combo", "ratio", "envDIA", "fits", "chainLoss", "vs now", "rpm@same v", "chain", "axle", "OK?"))
     for r in rows:
         print("%-9s %-8.4f %-8.1f %-6s %-9.4f %+-8.1f%% %-9.0f %-8s %+-8.2f %-7s" % (
             "%dT/%dT" % (r["driver"], r["driven"]), r["ratio"], r["env_dia_mm"], r["fits"],
-            r["chain_loss_pct"], r["chain_loss_vs_now_pct"], r["max_rpm_loaded"],
+            r["chain_loss_pct"], r["chain_loss_vs_now_pct"], r["max_rpm_at_same_speed"],
             "%dp" % r["chain_pitches"], r["axle_move_mm"], r["viable"]))
     print()
     if viable:
@@ -146,7 +148,7 @@ def main():
         print("  chain loss %.4f%% (%+.1f%% vs the 13T/30T on the car)"
               % (w["chain_loss_pct"], w["chain_loss_vs_now_pct"]))
         print("  chain tension %.0f N, chordal ripple %.2f%%" % (w["chain_tension_N"], w["chordal_pct"]))
-        print("  max rpm %.0f free / %.0f loaded, both under %d" % (w["max_rpm_free"], w["max_rpm_loaded"], REDLINE))
+        print("  max rpm %.0f at the same road speed, under %d" % (w["max_rpm_at_same_speed"], REDLINE))
         print("  %d-pitch chain, axle moves %+.2f mm, keeps the 30T driven: %s"
               % (w["chain_pitches"], w["axle_move_mm"], w["keeps_30T_driven"]))
     print()

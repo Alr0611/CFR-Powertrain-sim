@@ -771,7 +771,7 @@ if CCR:
     banner(ws8, 1, "CHAIN + SPROCKET CONFIG RANKING   |   every combo in the 4.28-4.44 band", 16)
     n = ws8.cell(2, 1, "Ranked by chain loss (articulation friction, lower is better). Three HARD GATES kill a "
                        "config: driven bigger than the 171.4 mm envelope the chassis lead was given, over redline "
-                       "on the 0.190 loaded wheel radius, or a driver below 13T (chain life and chordal action). "
+                       "at the same road speed, or a driver below 13T (chain life and chordal action). "
                        "Only two combos pass all three. Chain geometry is MEASURED off chain.STEP and the sprocket "
                        "STEPs; accel and SOC are interpolated from the MATLAB sweep.")
     n.font = IT
@@ -779,7 +779,7 @@ if CCR:
     ws8.merge_cells("A2:P2")
     ws8.row_dimensions[2].height = 48
     heads8 = ["Combo", "Ratio", "Env dia", "Fits", "Chain loss %", "vs now", "Chain tens N",
-              "Chordal %", "Max rpm free", "Max rpm loaded", "Redline OK", "Chain",
+              "Chordal %", "Max rpm @ same speed", "Redline OK", "Chain",
               "Axle move", "0-75 m", "SOC98", "Verdict / blockers"]
     for j, h in enumerate(heads8, 1):
         c = ws8.cell(4, j, h)
@@ -793,8 +793,8 @@ if CCR:
         ok = r["viable"] == "YES"
         vals = ["%sT/%sT" % (r["driver"], r["driven"]), float(r["ratio"]), float(r["env_dia_mm"]),
                 r["fits"], float(r["chain_loss_pct"]), float(r["chain_loss_vs_now_pct"]),
-                float(r["chain_tension_N"]), float(r["chordal_pct"]), float(r["max_rpm_free"]),
-                float(r["max_rpm_loaded"]), r["redline_ok_loaded"], "%sp" % r["chain_pitches"],
+                float(r["chain_tension_N"]), float(r["chordal_pct"]), float(r["max_rpm_at_same_speed"]),
+                r["redline_ok"], "%sp" % r["chain_pitches"],
                 float(r["axle_move_mm"]), float(r["t75_s"]), float(r["SOC98"])]
         for j, v in enumerate(vals, 1):
             c = ws8.cell(rr, j, v)
@@ -906,8 +906,8 @@ _spec = [
     ("Chordal ripple %", lambda a, b: 100 * (1 - _m.cos(_m.pi / a)), "0.00", "Mott flags below 17T"),
     ("Chain friction loss %", lambda a, b: 100 * 0.10 * (2 * _m.pi * 2.54 / _P) * (1 / a + 1 / b), "0.0000",
      "relative ranking, mu cancels"),
-    ("Max rpm, free radius", lambda a, b: _W * _GB * b / a, "0", "redline 6000"),
-    ("Max rpm, loaded radius", lambda a, b: _W * _GB * b / a * 0.200 / 0.190, "0", "the governing case"),
+    ("Max rpm at the same road speed", lambda a, b: _W * _GB * b / a, "0",
+     "redline 6000. scales with ratio; rolling radius cancels"),
 ]
 _r = 5
 for lbl, fn, fmt, note in _spec:
@@ -933,8 +933,10 @@ n = ws9.cell(_r + 1, 1, "PICK 14T/30T if a 14T exists in the 6-lobe 21.0 / 25.0 
                         "30T driven AND the 42-pitch chain we already own, moves the axle 1.34 mm, and cuts chain "
                         "tension 7% and chordal ripple 14%. PICK 13T/28T if it does not: new 28T driven, 40-pitch "
                         "chain (two links out), axle 2.09 mm, chain loads unchanged from today, and it frees the "
-                        "most rear room (15.1 mm). Both clear redline on the loaded radius; the current 13T/30T "
-                        "does not.")
+                        "most rear room (15.1 mm). Both pull the rpm back under 6000; the current 13T/30T sits at "
+                        "6083. NOTE a withdrawn earlier claim of a 4.3197 redline ceiling on a loaded wheel "
+                        "radius was an arithmetic double count. 4.40 and 4.44 do NOT break the redline; they "
+                        "are ruled out on buildability. See docs/RATIO_4p3_JUSTIFICATION.md section 2.")
 n.font = B
 n.alignment = WRAP
 ws9.merge_cells(start_row=_r + 1, start_column=1, end_row=_r + 4, end_column=5)
