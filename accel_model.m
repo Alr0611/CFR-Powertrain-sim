@@ -25,7 +25,9 @@ fprintf('Wheel inertia %.4f kg*m^2 (%.1f kg, k=%.2f*r) | reflected @%.2f %.4f | 
 % curve, with p.gear_current forced ONTO the grid. Before this the grid was 3.6:0.05:5.4,
 % which does not contain 4.61 -- every "current" lookup below silently snapped to 4.60
 % and then printed it as 4.61. The physics/equations are unchanged.
-gears = unique(round([4.00:0.05:5.20, p.gear_current], 4));
+gears = unique(round([4.00:0.05:5.20, p.gear_current, p.gears_to_test], 4));
+% p.gears_to_test folded in so the sweep lands EXACTLY on the buildable sprocket
+% ratios (2.000 x driven/13, driven 26T..34T) instead of near them. Nothing removed.
 t75 = nan(size(gears)); t100 = nan(size(gears)); vtrap = nan(size(gears));
 for i = 1:numel(gears)
     [t100(i), t75(i), vtrap(i)] = accel_run(gears(i), p);

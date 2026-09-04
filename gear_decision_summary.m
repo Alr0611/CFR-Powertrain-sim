@@ -37,8 +37,14 @@ fprintf('  G = 2.000 x (driven/driver). Only integer sprockets exist.\n\n');
 % higher link load, worse wrap angle and shorter chain life. 12T on 520 is about the
 % practical floor. So list EVERY combo near each target and sort by driver size, do not
 % silently return the first one found.
-fprintf('  %6s %8s %8s %10s %12s  %s\n','driver','driven','G','vs 4.615','centre @60L','note');
-pitch = 12.7; links = 60;      % 520 chain, nominal loop
+fprintf('  %6s %8s %8s %10s %12s  %s\n','driver','driven','G','vs 4.615','centre @42L','note');
+pitch = 15.875; links = 42;     % 520 chain. MEASURED off chain.STEP: roller centres
+                               % 15.875 apart and roller dia 10.16. This line used to say
+                               % pitch = 12.7 (that is #40, half inch) with links = 60,
+                               % which is why the old centre distances came out around
+                               % 242 mm. CAD Measure says the real centre distance is
+                               % 152.08 mm, and 13/30 on a 42-link loop lands at 156.84.
+                               % See sprocket_configs.md sections 8 and 9.
 cdist = @(zp,zd) pitch/8*((2*links - zd - zp) + ...
                  sqrt((2*links - zd - zp)^2 - 8*((zd-zp)/pi)^2));
 for tgt = [4.00 4.20 4.40 4.6154 4.80 5.00 5.20]
@@ -63,7 +69,7 @@ for tgt = [4.00 4.20 4.40 4.6154 4.80 5.00 5.20]
             b.zp, b.zd, b.G, 100*(b.G/4.6154-1), cdist(b.zp,b.zd), n);
     end
 end
-fprintf('\n  centre @60L = centre distance a fixed 60-link chain would need. It MOVES with\n');
+fprintf('\n  centre @42L = centre distance a fixed 42-link chain would need. It MOVES with\n');
 fprintf('  sprocket size, so any ratio change is a packaging change too, not a bolt-on.\n');
 
 %% ---------- the trade table ----------

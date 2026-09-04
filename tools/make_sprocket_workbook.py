@@ -590,6 +590,101 @@ n.font = IT
 n.alignment = WRAP
 ws5.merge_cells(start_row=last + 2, start_column=1, end_row=last + 5, end_column=12)
 
+# ====================== SHEET: RATIO DECISION (FSAE POINTS) ======================
+try:
+    with open(os.path.join(ROOT, "output", "gear_points_model.csv")) as _f:
+        PTS = list(csv.DictReader(_f))
+    with open(os.path.join(ROOT, "output", "gear_meeting_matrix.csv")) as _f:
+        MTX = {int(float(r["driven_teeth"])): r for r in csv.DictReader(_f)}
+except FileNotFoundError:
+    PTS, MTX = [], {}
+
+if PTS:
+    ws6 = wb.create_sheet("Ratio Decision")
+    widths(ws6, {"A": 9, "B": 9, "C": 11, "D": 10, "E": 10, "F": 10, "G": 11, "H": 10,
+                 "I": 10, "J": 10, "K": 12, "L": 12, "M": 30})
+    banner(ws6, 1, "RATIO DECISION   |   FSAE Electric points vs buildable sprocket, 13T driver fixed", 13)
+    n = ws6.cell(2, 1, "Concordia 2026: 476.1 pts, 19th, ENDURANCE 25.0 out of 275. The ratio moves about 6 "
+                       "points across the whole 4.2-4.8 band. Finishing endurance is worth 250. Accel and "
+                       "Efficiency are modelled here; Autocross (125) and Endurance time (250) are NOT, because "
+                       "no lap-time-vs-ratio model exists. Treat this as a FLOOR on what the ratio is worth.")
+    n.font = IT
+    n.alignment = WRAP
+    ws6.merge_cells("A2:M2")
+    ws6.row_dimensions[2].height = 46
+    heads6 = ["Driven", "Ratio", "0-75 m (s)", "Accel pts", "Wh/lap", "Effic pts", "Accel+Eff",
+              "vs 30T", "Final SOC %", "Top spd", "Exits past knee %", "Grip penalty (s)", "Note"]
+    for j, h in enumerate(heads6, 1):
+        c = ws6.cell(4, j, h)
+        c.font = WF
+        c.fill = HDR
+        c.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
+        c.border = BOX
+    ws6.row_dimensions[4].height = 40
+    for i, r in enumerate(PTS):
+        rr = 5 + i
+        N2 = int(float(r["driven_teeth"]))
+        m = MTX.get(N2, {})
+        vals = [N2, float(r["ratio"]), float(r["t75_s_mu853"]), float(r["accel_pts"]),
+                float(r["wh_per_lap"]), float(r["efficiency_pts"]), float(r["accel_plus_eff"]),
+                float(r["vs_30T"]), float(r["SOC98"]), float(r["top_speed_kph"]),
+                float(r["exits_past_knee_pct"]), float(r["grip_penalty_s"])]
+        for j, v in enumerate(vals, 1):
+            c = ws6.cell(rr, j, v)
+            c.border = BOX
+            c.alignment = CTR
+            if j == 2:
+                c.number_format = "0.0000"
+            elif j == 3:
+                c.number_format = "0.0000"
+            elif j in (12,):
+                c.number_format = "+0.0000;-0.0000"
+            elif j == 8:
+                c.number_format = "+0.0;-0.0"
+            elif j > 3:
+                c.number_format = "0.0"
+        note = ""
+        if N2 == 30:
+            note = "CURRENT. Fitted, zero risk."
+        elif N2 == 31:
+            note = "Best in band, +1.3 pts, axle moves 0.14 mm. Needs offset link."
+        elif N2 == 28:
+            note = "Costs 5.0 pts, buys 0.4 pts of SOC margin. Even chain."
+        elif N2 == 32:
+            note = "Peak points, but 176.5 mm envelope is NOT covered by chassis."
+        elif N2 in (33, 34):
+            note = "Grip-sensitive, TC eats the gain. Past the sweep."
+        elif N2 in (26, 27):
+            note = "Too long, gives up real accel points."
+        ws6.cell(rr, 13, note).alignment = WRAP
+        ws6.cell(rr, 13).border = BOX
+        inband = 4.2 <= float(r["ratio"]) <= 4.8
+        if N2 == 30:
+            for j in range(1, 14):
+                ws6.cell(rr, j).fill = CUR
+        elif inband:
+            for j in range(1, 14):
+                ws6.cell(rr, j).fill = PatternFill("solid", fgColor="EDF3FB")
+    last6 = 4 + len(PTS)
+    n = ws6.cell(last6 + 2, 1, "CALIBRATION: our 2026 accel score 47.8 inverts to Tyour/Tmin = 1.2228, which with "
+                               "the sim time 4.6975 s puts the field best at 3.842 s (Wisconsin scored 100). "
+                               "Accel is worth about 49.9 points per second at our operating point. Field best "
+                               "energy is 83.7 Wh/lap (Missouri S&T, 2025 e-meter, 28 teams); we are near 240. "
+                               "Sources: FSAE_2026_MI6_prelim.pdf, FSAE Rules 2026 D.9 and D.13, "
+                               "output/emeter_benchmark.csv.")
+    n.font = IT
+    n.alignment = WRAP
+    ws6.merge_cells(start_row=last6 + 2, start_column=1, end_row=last6 + 5, end_column=13)
+    n = ws6.cell(last6 + 7, 1, "RECOMMENDATION: stay at 30T. 31T is the only upgrade worth arguing for (+1.3 pts, "
+                               "0.14 mm axle move) but it needs an offset link and pushes exits-past-knee from 37% "
+                               "to 41%, which costs autocross points this table cannot score. The real question for "
+                               "the meeting is WHY endurance scored 25/275. If it was energy, 28T is the answer and "
+                               "5 points is cheap insurance. If it was mechanical or thermal, the ratio is "
+                               "irrelevant and 30T stays.")
+    n.font = B
+    n.alignment = WRAP
+    ws6.merge_cells(start_row=last6 + 7, start_column=1, end_row=last6 + 10, end_column=13)
+
 # ========================== SHEET 3: README ==========================
 ws3 = wb.create_sheet("README")
 widths(ws3, {"A": 30, "B": 100})

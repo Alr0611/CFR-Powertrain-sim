@@ -7,6 +7,7 @@
 %   2. Where is the motor STRONG?           torque knee, peak power, rolloff
 %   3. Where did the car ACTUALLY operate?  comp telemetry, overlaid on 1 and 2
 %   4. What does GEAR RATIO do to that?     re-map the same driving to other ratios
+%   5. Where is the PEAK-EFF BAND per ratio? the fixed rpm band vs the road speed it lands at
 %
 % Q4 is the one that matters. It turns "4.2 should feel better" into "X% of motoring time
 % moves out of the power-limited region", which is an argument you can defend.
@@ -169,6 +170,92 @@ fprintf('  holds flat torque to a higher speed but with less multiplication. "Fe
 fprintf('  is dying" is the fade, not the peak, so kneeKPH is the column that matches the\n');
 fprintf('  driver complaint.\n');
 
+%% ============ 5. WHERE THE MOTOR WANTS TO BE, RATIO BY RATIO ============
+% Section 4 answers "what does the ratio do to the efficiency STATISTICS". This one
+% answers the question the ratio choice is actually made on: the motor has ONE rpm band
+% it is happiest in, that band is a property of the motor and does not move. Gearing is
+% the only thing that decides WHICH ROAD SPEED lands the motor in it. So:
+%
+%   1. collapse the efficiency map to the best efficiency reachable at each rpm
+%      (best over torque, inside the envelope) -> a peak-efficiency rpm band
+%   2. that band is a horizontal stripe, fixed, drawn once
+%   3. re-gear the real driving at every ratio and see whose cloud sits in the stripe
+%
+% Read the sweet-spot band as a RELATIVE shape, not an absolute efficiency (see header).
+% The bias in the physics model is common to every rpm, so the band's LOCATION is far
+% more trustworthy than the % printed on it.
+
+[effBest, iTqBest] = max(EFF_f, [], 1, 'omitnan');  % best eff reachable at each rpm,
+tqAtBest = tqGrid(iTqBest);                        % and the torque that achieves it
+[peakEff, ks] = max(effBest, [], 'omitnan');
+rpmStar  = rpmGrid(ks);
+tqStar   = tqAtBest(ks);
+
+% BAND DEFINITION, and the first try at this was wrong so it is worth stating.
+% Do NOT use "effBest >= p.eff_sweet". eff_sweet (90%) is a threshold for a POINT in the
+% rpm-torque plane, and effBest is already the best-case torque at each rpm, so that test
+% passes over 825-6000 rpm: essentially the whole range, and every ratio scored ~99%.
+% True, and useless. To discriminate ratios the band has to be tight around the PEAK, so
+% it is defined relative to the ridge maximum instead.
+BAND_TOL = 0.01;                                 % within 1 percentage point of the peak
+inBand  = effBest >= peakEff - BAND_TOL;
+bandLo  = rpmGrid(find(inBand, 1));
+bandHi  = rpmGrid(find(inBand, 1, 'last'));
+looseLo = rpmGrid(find(effBest >= p.eff_sweet, 1));
+looseHi = rpmGrid(find(effBest >= p.eff_sweet, 1, 'last'));
+
+fprintf('\n=== 5. THE PEAK-EFFICIENCY RPM BAND, AND WHAT GEARING DOES TO IT ===\n');
+fprintf('  best rpm       : %d rpm (%.1f%% at %d Nm) <- the single happiest point\n', ...
+    rpmStar, 100*peakEff, tqStar);
+fprintf('  peak-eff BAND  : %d-%d rpm (ridge within %.0f pt of the peak) <- the useful one\n', ...
+    bandLo, bandHi, 100*BAND_TOL);
+fprintf('  loose band     : %d-%d rpm (ridge >= %.0f%%). Nearly the whole rev range, so it\n', ...
+    looseLo, looseHi, 100*p.eff_sweet);
+fprintf('                   does NOT separate ratios. Kept only so nobody re-derives it.\n');
+fprintf('  CAVEAT: the ridge is best-over-torque, i.e. it assumes the motor is loaded to its\n');
+fprintf('  optimum torque at each rpm (%d Nm at the peak). Real driving is not on the ridge,\n', tqStar);
+fprintf('  so the in-band %% below is an RPM test, not a claim about achieved efficiency.\n');
+fprintf('  torque knee    : %d rpm, redline %d rpm\n', knee, p.redline);
+fprintf('  NOTE the band is a MOTOR property. It does not move with gearing. Gearing only\n');
+fprintf('  decides which ROAD SPEED puts the motor in it, and how much of the driving lands there.\n\n');
+
+fprintf('  ratio   band kph    best-eff kph   medRPM  p10-p90 RPM     %%time in band\n');
+kph = @(r, g) r./g * (2*pi/60) * p.r_wheel * 3.6;
+res5 = struct('G',{},'kphLo',{},'kphHi',{},'kphStar',{},'medRpm',{}, ...
+              'p10',{},'p90',{},'inBand',{});
+for g = ratios
+    rN   = wRpm_m * g;
+    frac = 100*mean(rN >= bandLo & rN <= bandHi);
+    q    = prctile(rN, [10 50 90]);
+    fprintf('  %5.2f  %5.1f-%5.1f  %12.1f  %7.0f  %5.0f-%-5.0f %13.1f\n', ...
+        g, kph(bandLo,g), kph(bandHi,g), kph(rpmStar,g), q(2), q(1), q(3), frac);
+    res5(end+1) = struct('G',g,'kphLo',kph(bandLo,g),'kphHi',kph(bandHi,g), ...
+        'kphStar',kph(rpmStar,g),'medRpm',q(2),'p10',q(1),'p90',q(3), ...
+        'inBand',frac); %#ok<SAGROW>
+end
+[~, iBest5] = max([res5.inBand]);
+[~, iWorst5] = min([res5.inBand]);
+fprintf('\n  band kph      road speeds that put the motor in its peak-efficiency band\n');
+fprintf('  %%time in band  share of motoring time whose RPM lands in the band once re-geared\n');
+spread5 = max([res5.inBand]) - min([res5.inBand]);
+fprintf('\n  AND THE ANSWER IS THAT THIS AXIS BARELY MATTERS. Best %.2f at %.1f%%, worst %.2f at\n', ...
+    res5(iBest5).G, res5(iBest5).inBand, res5(iWorst5).G);
+fprintf('  %.1f%%, a spread of %.1f points across the whole 4.00-5.20 sweep. That is not a\n', ...
+    res5(iWorst5).inBand, spread5);
+fprintf('  decision, it is a tie. Do not quote "%.2f wins on efficiency" off this table.\n', res5(iBest5).G);
+fprintf('\n  WHY it ties, which is the actually useful finding: the EMRAX efficiency ridge is\n');
+fprintf('  FLAT. Within 1 point of peak it runs %d-%d rpm, i.e. %.0f%% of the usable rev range.\n', ...
+    bandLo, bandHi, 100*(bandHi-bandLo)/p.redline);
+fprintf('  Any ratio in the sweep parks the driving inside it. So rpm PLACEMENT is not where\n');
+fprintf('  gearing wins or loses efficiency.\n');
+fprintf('\n  LOADING is. Section 4 puts the same driving at %.1f%% sweet-spot time at 4.00 and\n', ...
+    res(1).sweet);
+fprintf('  %.1f%% at 5.20, an %.0f-point spread, because at a long ratio the motor is asked for\n', ...
+    res(end).sweet, res(1).sweet - res(end).sweet);
+fprintf('  MORE torque at the same wheel demand, and the map is far more sensitive to torque\n');
+fprintf('  than to rpm. Tab 5 shows why: the band is a wide horizontal stripe, so sliding the\n');
+fprintf('  cloud along it costs nothing. Read tab 1 for the axis that does move.\n');
+
 %% ======================= FIGURES =======================
 fig = figure('Name','Peak operating point','Position',[40 40 1150 700]);
 tg = uitabgroup(fig);
@@ -215,6 +302,73 @@ xlabel(ax,'gear ratio'); grid(ax,'on');
 legend(ax, {'in sweet spot','past torque knee','corner exit past knee','corner-exit headroom'}, 'Location','best');
 title(ax,'Same driving, re-geared. Higher ratio = more rpm, less motor torque');
 
+% --- Tabs 5 and 6: the peak-efficiency band, and where each ratio puts you in it.
+% Two views of ONE fact. Tab 5 is the motor's frame (rpm), tab 6 is the driver's
+% frame (road speed). The band is a horizontal stripe in tab 5 because it does not
+% move with gearing; in tab 6 it fans out as 1/G, which IS the whole trade.
+Gfine = linspace(min(ratios), max(ratios), 200);
+bandCol  = [0.20 0.65 0.35];
+starCol  = [0.05 0.40 0.20];
+
+ax = axes(uitab(tg,'Title','5. Peak-eff band vs ratio'));
+hold(ax,'on');
+fill(ax, [ratios(1)-0.1 ratios(end)+0.1 ratios(end)+0.1 ratios(1)-0.1], ...
+     [bandLo bandLo bandHi bandHi], bandCol, 'FaceAlpha',0.16, 'EdgeColor','none');
+yline(ax, rpmStar, '-', sprintf('best %d rpm', rpmStar), ...
+      'Color', starCol, 'LineWidth', 2, 'LabelHorizontalAlignment','left');
+yline(ax, bandLo, '--', sprintf('band from %d rpm', bandLo), 'Color', bandCol);
+% The band top usually lands ON redline (the ridge stays within 1 pt all the way up),
+% and two labels on one line is unreadable, so only draw it when it is actually distinct.
+if bandHi < p.redline - 25
+    yline(ax, bandHi, '--', sprintf('band %d rpm', bandHi), 'Color', bandCol);
+end
+yline(ax, knee, 'k:', sprintf('torque knee %d', knee), 'LabelHorizontalAlignment','left');
+yline(ax, p.redline, 'r-', 'redline', 'LineWidth', 1.4);
+% p10-p90 of the re-geared motoring rpm, with the median as a marker. Straight lines
+% because rpm scales exactly linearly with G once the driving is held fixed.
+for i = 1:numel(res5)
+    plot(ax, [res5(i).G res5(i).G], [res5(i).p10 res5(i).p90], 'k-', 'LineWidth', 1.2);
+end
+plot(ax, [res5.G], [res5.p10], ':', 'Color',[.45 .45 .45]);
+plot(ax, [res5.G], [res5.p90], ':', 'Color',[.45 .45 .45]);
+scatter(ax, [res5.G], [res5.medRpm], 90, [res5.inBand], 'filled', ...
+        'MarkerEdgeColor','k');
+for i = 1:numel(res5)
+    text(ax, res5(i).G, res5(i).p90 + 120, sprintf('%.0f%%', res5(i).inBand), ...
+         'HorizontalAlignment','center', 'FontSize', 8);
+end
+xline(ax, p.gear_current, 'b--', sprintf('current %.2f', p.gear_current), 'LineWidth',1.3);
+colormap(ax, parula); cb = colorbar(ax);
+cb.Label.String = '% of motoring time with rpm inside the band';
+xlim(ax, [ratios(1)-0.1 ratios(end)+0.1]); ylim(ax, [0 p.redline*1.05]);
+xlabel(ax,'gear ratio'); ylabel(ax,'motor rpm'); grid(ax,'on');
+title(ax, sprintf(['Peak-efficiency band is FIXED (%d-%d rpm, within %.0f pt of peak). Gearing slides the ' ...
+    'driving up and down it.\nBars = p10-p90 of re-geared motoring rpm, dot = median, ' ...
+    'label = %% of time with rpm in band'], bandLo, bandHi, 100*BAND_TOL));
+
+ax = axes(uitab(tg,'Title','6. Peak-eff road speed'));
+hold(ax,'on');
+kphLo = kph(bandLo, Gfine); kphHi = kph(bandHi, Gfine); kphSt = kph(rpmStar, Gfine);
+fill(ax, [Gfine fliplr(Gfine)], [kphLo fliplr(kphHi)], bandCol, ...
+     'FaceAlpha',0.18, 'EdgeColor','none');
+plot(ax, Gfine, kphSt, '-', 'Color', starCol, 'LineWidth', 2.2);
+plot(ax, Gfine, kph(knee, Gfine),    'k:',  'LineWidth', 1.5);
+plot(ax, Gfine, kph(p.redline,Gfine),'r-',  'LineWidth', 1.4);
+plot(ax, [res5.G], [res5.kphStar], 'ko', 'MarkerFaceColor','w', 'MarkerSize',7);
+for i = 1:numel(res5)
+    text(ax, res5(i).G, res5(i).kphStar - 3.2, sprintf('%.0f', res5(i).kphStar), ...
+         'HorizontalAlignment','center', 'FontSize', 8);
+end
+xline(ax, p.gear_current, 'b--', sprintf('current %.2f', p.gear_current), 'LineWidth',1.3);
+xlabel(ax,'gear ratio'); ylabel(ax,'road speed (kph)'); grid(ax,'on');
+legend(ax, {sprintf('peak-eff band (%d-%d rpm)',bandLo,bandHi), ...
+            sprintf('best rpm (%d)',rpmStar), 'torque knee', 'redline (top speed)'}, ...
+       'Location','northeast');
+title(ax, ['Same band, driver frame: the road speed at which the motor is happiest.' newline ...
+    'Short gearing (right) pulls it DOWN, so peak efficiency arrives at a slower speed.']);
+
 save_tabfig(fig, fullfile('output','PeakOperatingPoint'));
-writetable(struct2table(res), 'output/peak_operating_point_ratios.csv');
-fprintf('\nSaved: output/peak_operating_point_ratios.csv + a 4-tab figure\n');
+writetable(struct2table(res),  'output/peak_operating_point_ratios.csv');
+writetable(struct2table(res5), 'output/peak_efficiency_band_by_ratio.csv');
+fprintf('\nSaved: output/peak_operating_point_ratios.csv\n');
+fprintf('       output/peak_efficiency_band_by_ratio.csv + a 6-tab figure\n');
