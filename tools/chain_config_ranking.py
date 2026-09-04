@@ -27,6 +27,9 @@ W_MAX = 6083 / 4.61     # wheel rpm at the measured peak motor rpm
 R_FREE, R_LOADED = 0.200, 0.190
 BAND = (4.28, 4.44)     # practical 4.3-4.4 band, slightly widened so the 14T
                         # options are visible rather than silently excluded
+import sys as _sys
+if len(_sys.argv) == 3:                      # override: python ... 4.40 4.45
+    BAND = (float(_sys.argv[1]), float(_sys.argv[2]))
 
 
 def D(N):
@@ -152,7 +155,8 @@ def main():
         if r["viable"] == "NO":
             print("  %dT/%dT %.4f -- %s" % (r["driver"], r["driven"], r["ratio"], r["blockers"]))
 
-    out = os.path.join(ROOT, "output", "chain_config_ranking.csv")
+    tag = "" if abs(BAND[0]-4.28) < 1e-9 else "_%.2f_%.2f" % BAND
+    out = os.path.join(ROOT, "output", "chain_config_ranking%s.csv" % tag)
     with open(out, "w", newline="") as f:
         wr = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         wr.writeheader()

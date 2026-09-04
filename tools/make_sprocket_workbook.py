@@ -843,6 +843,102 @@ if CCR:
     n.alignment = WRAP
     ws8.merge_cells(start_row=lr + 6, start_column=1, end_row=lr + 10, end_column=16)
 
+# ====================== SHEET: 4.3 SPEC SHEET ======================
+import math as _m
+_P, _PH, _C0, _GB, _T, _ROLL = 15.875, 7.2517, 152.08, 2.000, 300.0, 10.16
+_W = 6083 / 4.61
+
+
+def _D(N):
+    return _P / _m.sin(_m.pi / N)
+
+
+def _OD(N):
+    return _P * (0.6 + 1 / _m.tan(_m.pi / N))
+
+
+def _L(a, b, C=_C0):
+    return 2 * C / _P + (a + b) / 2 + ((b - a) / (2 * _m.pi)) ** 2 * _P / C
+
+
+def _Cfor(a, b, Lt):
+    A = 2 / _P
+    B = (a + b) / 2 - Lt
+    Cc = ((b - a) / (2 * _m.pi)) ** 2 * _P
+    return (-B + _m.sqrt(B * B - 4 * A * Cc)) / (2 * A)
+
+
+ws9 = wb.create_sheet("4.3 Spec Sheet")
+widths(ws9, {"A": 30, "B": 18, "C": 18, "D": 18, "E": 46})
+banner(ws9, 1, "4.3 FINAL DRIVE   |   build spec for the two viable configs", 5)
+n = ws9.cell(2, 1, "Ratio frozen at 4.3. Both configs keep the existing diff mounting (45.60 bore, 6 x dia 6.31 "
+                   "on a 92.69 BCD) and both fit inside the 171.4 mm envelope chassis was given. Full reasoning "
+                   "and a 29-question Q&A in docs/RATIO_4p3_JUSTIFICATION.md.")
+n.font = IT
+n.alignment = WRAP
+ws9.merge_cells("A2:E2")
+ws9.row_dimensions[2].height = 32
+for j, h in enumerate(["Parameter", "13T / 28T", "14T / 30T", "current 13T/30T", "Note"], 1):
+    c = ws9.cell(4, j, h)
+    c.font = WF
+    c.fill = HDR
+    c.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
+    c.border = BOX
+ws9.row_dimensions[4].height = 26
+_spec = [
+    ("Total ratio", lambda a, b: _GB * b / a, "0.0000", ""),
+    ("Driver teeth", lambda a, b: a, "0", "sits on the 6-lobe spline"),
+    ("Driven teeth", lambda a, b: b, "0", "made in house"),
+    ("Driver pitch dia mm", lambda a, b: _D(a), "0.000", "P/sin(180/N), Mott"),
+    ("Driver OD mm", lambda a, b: _OD(a), "0.000", "P*(0.6+cot(180/N)), Mott"),
+    ("Driven pitch dia mm", lambda a, b: _D(b), "0.000", ""),
+    ("Driven OD mm", lambda a, b: _OD(b), "0.000", "the number for a drawing"),
+    ("Driven root dia mm", lambda a, b: _D(b) - _ROLL, "0.000", "clears the 92.69 BCD easily"),
+    ("Chain envelope dia mm", lambda a, b: _D(b) + 2 * _PH, "0.0", "includes chain plates"),
+    ("Envelope margin mm", lambda a, b: 171.4 - (_D(b) + 2 * _PH), "+0.0;-0.0", "against the 171.4 cap"),
+    ("Chain length pitches", lambda a, b: 2 * round(_L(a, b) / 2), "0", "must be EVEN"),
+    ("Centre distance mm", lambda a, b: _Cfor(a, b, 2 * round(_L(a, b) / 2)), "0.00", "for that even count"),
+    ("Axle move from 152.08 mm", lambda a, b: _Cfor(a, b, 2 * round(_L(a, b) / 2)) - _C0, "+0.00;-0.00",
+     "how far the diff shifts"),
+    ("Wrap on driver deg", lambda a, b: 180 - 2 * _m.degrees(
+        _m.asin((_D(b) - _D(a)) / (2 * _Cfor(a, b, 2 * round(_L(a, b) / 2))))), "0.0", "120 deg is the flag"),
+    ("Chain tension N", lambda a, b: _T / (_D(a) / 2 / 1000), "0", "at 150 Nm through the 2.000 gearbox"),
+    ("Chordal ripple %", lambda a, b: 100 * (1 - _m.cos(_m.pi / a)), "0.00", "Mott flags below 17T"),
+    ("Chain friction loss %", lambda a, b: 100 * 0.10 * (2 * _m.pi * 2.54 / _P) * (1 / a + 1 / b), "0.0000",
+     "relative ranking, mu cancels"),
+    ("Max rpm, free radius", lambda a, b: _W * _GB * b / a, "0", "redline 6000"),
+    ("Max rpm, loaded radius", lambda a, b: _W * _GB * b / a * 0.200 / 0.190, "0", "the governing case"),
+]
+_r = 5
+for lbl, fn, fmt, note in _spec:
+    c = ws9.cell(_r, 1, lbl)
+    c.font = B
+    c.border = BOX
+    for j, (a, b) in enumerate([(13, 28), (14, 30), (13, 30)], 2):
+        cc = ws9.cell(_r, j, fn(a, b))
+        cc.number_format = fmt
+        cc.border = BOX
+        cc.alignment = CTR
+        if j == 4:
+            cc.fill = PatternFill("solid", fgColor="F2F2F2")
+    nc = ws9.cell(_r, 5, note)
+    nc.font = IT
+    nc.alignment = WRAP
+    nc.border = BOX
+    _r += 1
+ws9.conditional_formatting.add("B%d:C%d" % (_r - 2, _r - 1), FormulaRule(
+    formula=["B%d>6000" % (_r - 2)], fill=PatternFill("solid", fgColor="FFC7CE"),
+    font=Font(color="9C0006", bold=True)))
+n = ws9.cell(_r + 1, 1, "PICK 14T/30T if a 14T exists in the 6-lobe 21.0 / 25.0 / 5.0 spline bore: it keeps the "
+                        "30T driven AND the 42-pitch chain we already own, moves the axle 1.34 mm, and cuts chain "
+                        "tension 7% and chordal ripple 14%. PICK 13T/28T if it does not: new 28T driven, 40-pitch "
+                        "chain (two links out), axle 2.09 mm, chain loads unchanged from today, and it frees the "
+                        "most rear room (15.1 mm). Both clear redline on the loaded radius; the current 13T/30T "
+                        "does not.")
+n.font = B
+n.alignment = WRAP
+ws9.merge_cells(start_row=_r + 1, start_column=1, end_row=_r + 4, end_column=5)
+
 # ========================== SHEET 3: README ==========================
 ws3 = wb.create_sheet("README")
 widths(ws3, {"A": 30, "B": 100})
