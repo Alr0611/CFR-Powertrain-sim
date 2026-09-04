@@ -685,6 +685,78 @@ if PTS:
     n.alignment = WRAP
     ws6.merge_cells(start_row=last6 + 7, start_column=1, end_row=last6 + 10, end_column=13)
 
+# ====================== SHEET: OPTIMUMLAP CROSS-CHECK ======================
+try:
+    with open(os.path.join(ROOT, "output", "optimumlap_ratio_sweep.csv")) as _f:
+        OLR = list(csv.DictReader(_f))
+except FileNotFoundError:
+    OLR = []
+
+if OLR:
+    ws7 = wb.create_sheet("OptimumLap Check")
+    widths(ws7, {"A": 10, "B": 15, "C": 15, "D": 15, "E": 14, "F": 14, "G": 13, "H": 40})
+    banner(ws7, 1, "OPTIMUMLAP CROSS-CHECK   |   Michigan Endurance 2026, halfshaft 12 deg", 8)
+    n = ws7.cell(2, 1, "This is the lap-time-vs-ratio model the MATLAB study did not have. Two findings: "
+                       "endurance lap time is essentially ratio-invariant (0.0382 s across the whole "
+                       "4.00-5.20 range, 0.054%), and the accel result is the OPPOSITE direction to the "
+                       "MATLAB sim because OptimumLap runs the full 150 Nm map while gear_meeting_matrix "
+                       "runs the real 123 Nm request. Neither is a bug. See output/optimumlap_crosscheck.txt.")
+    n.font = IT
+    n.alignment = WRAP
+    ws7.merge_cells("A2:H2")
+    ws7.row_dimensions[2].height = 46
+    heads7 = ["Ratio", "Endurance lap (s)", "Energy (kJ/lap)", "Energy (Wh/lap)",
+              "Endur TCS %", "Accel t75 (s)", "Accel TCS %", "Note"]
+    for j, h in enumerate(heads7, 1):
+        c = ws7.cell(4, j, h)
+        c.font = WF
+        c.fill = HDR
+        c.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
+        c.border = BOX
+    ws7.row_dimensions[4].height = 34
+    for i, r in enumerate(OLR):
+        rr = 5 + i
+        ratio = float(r["ratio"])
+        for j, key in enumerate(["ratio", "endurance_lap_s", "endurance_energy_kJ",
+                                 "endurance_Wh_per_lap", "endurance_TCS_pct",
+                                 "accel_t75_s", "accel_TCS_pct"], 1):
+            c = ws7.cell(rr, j, float(r[key]))
+            c.border = BOX
+            c.alignment = CTR
+            c.number_format = "0.0000" if j in (2, 6) else ("0.00" if j == 1 else "0.0")
+        note = ""
+        if abs(ratio - 4.80) < 0.01:
+            note = "fastest endurance lap of the sweep"
+        elif abs(ratio - 4.00) < 0.01:
+            note = "fastest accel ON THE 150 Nm MAP, least energy"
+        elif abs(ratio - 4.61) < 0.01:
+            note = "CURRENT"
+        elif abs(ratio - 5.20) < 0.01:
+            note = "worst on both, TCS active 97% of the accel run"
+        ws7.cell(rr, 8, note).alignment = WRAP
+        ws7.cell(rr, 8).border = BOX
+        if abs(ratio - 4.61) < 0.01:
+            for j in range(1, 9):
+                ws7.cell(rr, j).fill = CUR
+    lr = 4 + len(OLR)
+    n = ws7.cell(lr + 2, 1, "WHAT IT IS WORTH: endurance total time spread is 0.84 s over 22 laps, at about "
+                            "0.52 pts/s, so ENDURANCE TIME across the entire ratio sweep is worth 0.44 points. "
+                            "Scaling the same 0.054% onto a 60 s autocross lap gives 0.21 points. Together the "
+                            "375 points that looked unmodelled are worth about 0.6 points. Energy rises 3.07% "
+                            "from 4.00 to 5.20 (MATLAB SOC said 1.2%, same direction, OptimumLap steeper).")
+    n.font = IT
+    n.alignment = WRAP
+    ws7.merge_cells(start_row=lr + 2, start_column=1, end_row=lr + 5, end_column=8)
+    n = ws7.cell(lr + 7, 1, "THE HEADLINE: the ratio decision is downstream of the TORQUE MAP decision. "
+                            "Run 123 Nm and shorter gearing wins (30T-32T). Run 150 Nm and longer gearing wins "
+                            "(26T-28T). Decide the torque map first. Also: measured clean launch was 4.40 s, "
+                            "OptimumLap says 4.91 and the MATLAB TC sim says 4.70 at the current ratio, so both "
+                            "sims are pessimistic against the one real launch we have. Trust the RANKING inside "
+                            "each torque assumption, not the absolute seconds.")
+    n.font = B
+    n.alignment = WRAP
+    ws7.merge_cells(start_row=lr + 7, start_column=1, end_row=lr + 11, end_column=8)
+
 # ========================== SHEET 3: README ==========================
 ws3 = wb.create_sheet("README")
 widths(ws3, {"A": 30, "B": 100})
